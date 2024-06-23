@@ -8,7 +8,6 @@ import System.Environment
 import Data.Maybe
 import Text.Regex.Posix
 
--- 'Parser a' will take [Token] as input instead of String
 newtype Parser a b =
   Parser { runParser :: [a] -> Either String (b, [a]) }
 
