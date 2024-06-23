@@ -8,45 +8,42 @@ import System.Environment
 import Data.Maybe
 import Text.Regex.Posix
 
-newtype Parser a = Parser { runParser :: String -> Either String (a, String) }
+-- 'Parser a' will take [Token] as input instead of String
+newtype Lexer a =
+  Lexer { runLexer :: String -> Either String (a, String) }
 
--- for error messages
-errorParse :: String -> Parser Token
-errorParse s = Parser $ const $ Left s
-
-satisfy :: (Char -> Bool) -> Parser Char
-satisfy p = Parser f
+satisfy :: (Char -> Bool) -> Lexer Char
+satisfy p = Lexer f
   where
     f [] = Left "empty input"
     f (x:xs)
         | p x       = Right (x, xs)
         | otherwise = Left "failed satisfy"
 
-char :: Char -> Parser Char
+char :: Char -> Lexer Char
 char c = satisfy (== c)
 
 first :: (a -> b) -> (a,c) -> (b,c)
 first f (x,y) = (f x, y)
 
-instance Functor Parser where
-  fmap f (Parser p) = Parser $ (fmap $ first f) . p
+instance Functor Lexer where
+  fmap f (Lexer p) = Lexer $ (fmap $ first f) . p
 
-instance Applicative Parser where
-  pure a = Parser (\s -> Right (a, s))
-  (Parser fp) <*> xp = Parser $ \s ->
+instance Applicative Lexer where
+  pure a = Lexer (\s -> Right (a, s))
+  (Lexer fp) <*> xp = Lexer $ \s ->
     case fp s of
       Left s       -> Left s
-      Right (f,s') -> runParser (f <$> xp) s'
+      Right (f,s') -> runLexer (f <$> xp) s'
 
 instance Alternative (Either String) where
   empty = Left ""
   (Left _) <|> r = r
   l <|> _ = l
 
-instance Alternative Parser where
-  empty = Parser (const Left "")
-  (Parser p1) <|> (Parser p2) = Parser (\s -> p1 s <|> p2 s)
-
+instance Alternative Lexer where
+  empty = Lexer (const Left "")
+  (Lexer p1) <|> (Lexer p2) = Lexer (\s -> p1 s <|> p2 s)
 
 data Token = IntLit Int
            | Ident String
@@ -58,59 +55,89 @@ data Token = IntLit Int
            | OpenB
            | CloseB
            | Semi
+           | None -- only used for error detection
            deriving (Show)
 
-spaces :: Parser String
+spaces :: Lexer String
 spaces = many (satisfy isSpace)
 
 -- assumes you'll only try to match the beginning of the string
-parseRegex :: String -> Parser String
-parseRegex regex = Parser f
+lexRegex :: String -> Lexer String
+lexRegex regex = Lexer f
   where
     f s
       | s =~ regex = Right (match, drop (length match) s)
-      | otherwise = Left $ "did not match regex: " ++ regex ++ " at " ++ s
+      | otherwise = Left $ "did not match regex: " ++ regex ++
+        " at " ++ (head $ lines s)
       where match = (s =~ regex) :: String
 
 -- takes token and matching regex as input
-parseConstToken :: Token -> String -> Parser Token
-parseConstToken t r = (const t) <$> parseRegex r
+lexConstToken :: Token -> String -> Lexer Token
+lexConstToken t r = (const t) <$> lexRegex r
 
--- regex package was being weird for {} characters
-parseCharToken :: Token -> Char -> Parser Token
-parseCharToken t c = (const t) <$> char c
-
+-- to ensure the entire file was parser
+lexEOF :: Lexer Token
+lexEOF = spaces *> Lexer f
+  where
+    f s
+      | null s = Right (None, s)
+      | otherwise = Left $ "Could not lex: " ++ (head $ lines s)
 
 -- hard to generalize because token values have different types
-parseIntLit :: Parser Token
-parseIntLit = (IntLit . read) <$> parseRegex "^[0-9]+\\b"
+lexIntLit :: Lexer Token
+lexIntLit = (IntLit . read) <$> lexRegex "^[0-9]+\\b"
 
-parseIdent :: Parser Token
-parseIdent = Ident <$> parseRegex "^[a-zA-Z_]\\w*\\b"
+lexIdent :: Lexer Token
+lexIdent = Ident <$> lexRegex "^[a-zA-Z_]\\w*\\b"
 
-parseToken :: Parser Token
-parseToken = parseConstToken Void "^void\\b" <|> parseConstToken Return "^return\\b" <|>
-              parseConstToken Int_ "^int\\b" <|> parseCharToken OpenP '(' <|>
-              parseCharToken CloseP ')' <|> parseCharToken OpenB '{' <|>
-              parseCharToken CloseB '}' <|> parseCharToken Semi ';' <|>
-              parseIntLit <|> parseIdent <|> errorParse "did not match any tokens"
+lexToken :: Lexer Token
+lexToken = lexConstToken Void "^void\\b" <|>
+           lexConstToken Return "^return\\b" <|>
+           lexConstToken Int_ "^int\\b" <|>
+           lexConstToken OpenP "^\\(" <|>
+           lexConstToken CloseP "^\\)" <|>
+           lexConstToken OpenB "^\\{" <|>
+           lexConstToken CloseB "^\\}" <|>
+           lexConstToken Semi "^;" <|>
+           lexIntLit <|>
+           lexIdent
 
 -- for testing
-repeatParse :: Integer -> Parser a -> Parser [a]
-repeatParse 1 p = (:[]) <$> p
-repeatParse n p = (:) <$> p <*> repeatParse (n - 1) p
+repeatLex :: Integer -> Lexer a -> Lexer [a]
+repeatLex 0 _ = pure []
+repeatLex n p = (:) <$> p <*> repeatLex (n - 1) p
 
-testStr :: String
-testStr = "\nint main(void) {\n  return 2;\n}"
+-- main function
+lexer :: Lexer [Token]
+lexer = (many $ spaces *> lexToken) <* lexEOF
 
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (x:_) = Just x
+lexerEval :: String -> Either String ([Token], String)
+lexerEval = runLexer lexer
+
+removeComments :: String -> String -> String
+removeComments regex s
+  | match = preprocess (a ++ c)
+  | otherwise = s
+  where
+    match = (s =~ regex) :: Bool
+    (a, b, c) = (s =~ regex) :: (String, String, String)
+
+-- regex library is in multiline mode
+-- I coudln't figure out how to fix it
+-- so newlines are removed here
+
+-- inline comments (//) are removed first while newlines are still there
+-- then newlines are removed
+-- then multi line (/* */) comments can be removed
+preprocess :: String -> String
+preprocess = (removeComments "/\\*([^*]|\\*+[^/])*\\*+/") .
+             unwords . lines . (removeComments "//.*$")
 
 main :: IO ()
 main = do
   args <- getArgs
-  let path = fromMaybe "" $ safeHead args
+  let path = head args
   content <- readFile path
-  let result = runParser (many $ spaces *> parseToken) content
-  putStrLn (show result)
+  let result = preprocess content
+  let tokens = lexerEval result
+  putStrLn (show tokens)
