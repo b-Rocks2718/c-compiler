@@ -3,9 +3,6 @@ module Parser where
 
 import Lexer
 
-newtype Parser a =
-  Parser {runParser :: [Token] -> Either String (a, [Token])}
-
 data Program   = Program Function
 data Function  = Function String Statement -- name, body
 data Statement = Statement Expr -- only return statements for now
@@ -33,14 +30,18 @@ instance Show Expr where
 testAST :: Program
 testAST = Program $ Function "main" $ Statement $ Expr 2
 
-parseProgram :: Parser Program
+isIdent :: Token -> Bool
+isIdent (Ident _) = True
+isIdent _ = False
+
+parseProgram :: Parser Token Program
 parseProgram = undefined
 
-parseFunction :: Parser Function
+parseFunction :: Parser Token Function
 parseFunction = undefined
 
-parseStatement :: Parser Statement
+parseStatement :: Parser Token Statement
 parseStatement = undefined
 
-parseExpr :: Parser Expr
+parseExpr :: Parser Token Expr
 parseExpr = undefined

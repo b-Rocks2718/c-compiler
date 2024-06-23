@@ -9,41 +9,41 @@ import Data.Maybe
 import Text.Regex.Posix
 
 -- 'Parser a' will take [Token] as input instead of String
-newtype Lexer a =
-  Lexer { runLexer :: String -> Either String (a, String) }
+newtype Parser a b =
+  Parser { runParser :: [a] -> Either String (b, [a]) }
 
-satisfy :: (Char -> Bool) -> Lexer Char
-satisfy p = Lexer f
+satisfy :: (a -> Bool) -> Parser a a
+satisfy p = Parser f
   where
     f [] = Left "empty input"
     f (x:xs)
         | p x       = Right (x, xs)
         | otherwise = Left "failed satisfy"
 
-char :: Char -> Lexer Char
-char c = satisfy (== c)
+match :: Eq a => a -> Parser a a
+match c = satisfy (==c)
 
 first :: (a -> b) -> (a,c) -> (b,c)
 first f (x,y) = (f x, y)
 
-instance Functor Lexer where
-  fmap f (Lexer p) = Lexer $ (fmap $ first f) . p
+instance Functor (Parser a) where
+  fmap f (Parser p) = Parser $ (fmap $ first f) . p
 
-instance Applicative Lexer where
-  pure a = Lexer (\s -> Right (a, s))
-  (Lexer fp) <*> xp = Lexer $ \s ->
+instance Applicative (Parser a) where
+  pure a = Parser (\s -> Right (a, s))
+  (Parser fp) <*> xp = Parser $ \s ->
     case fp s of
       Left s       -> Left s
-      Right (f,s') -> runLexer (f <$> xp) s'
+      Right (f,s') -> runParser (f <$> xp) s'
 
 instance Alternative (Either String) where
   empty = Left ""
   (Left _) <|> r = r
   l <|> _ = l
 
-instance Alternative Lexer where
-  empty = Lexer (const Left "")
-  (Lexer p1) <|> (Lexer p2) = Lexer (\s -> p1 s <|> p2 s)
+instance Alternative (Parser a) where
+  empty = Parser (\_ -> Left "")
+  (Parser p1) <|> (Parser p2) = Parser (\s -> p1 s <|> p2 s)
 
 data Token = IntLit Int
            | Ident String
@@ -56,14 +56,14 @@ data Token = IntLit Int
            | CloseB
            | Semi
            | None -- only used for error detection
-           deriving (Show)
+           deriving (Show, Eq)
 
-spaces :: Lexer String
+spaces :: Parser Char String
 spaces = many (satisfy isSpace)
 
 -- assumes you'll only try to match the beginning of the string
-lexRegex :: String -> Lexer String
-lexRegex regex = Lexer f
+lexRegex :: String -> Parser Char String
+lexRegex regex = Parser f
   where
     f s
       | s =~ regex = Right (match, drop (length match) s)
@@ -72,25 +72,25 @@ lexRegex regex = Lexer f
       where match = (s =~ regex) :: String
 
 -- takes token and matching regex as input
-lexConstToken :: Token -> String -> Lexer Token
+lexConstToken :: Token -> String -> Parser Char Token
 lexConstToken t r = (const t) <$> lexRegex r
 
 -- to ensure the entire file was parser
-lexEOF :: Lexer Token
-lexEOF = spaces *> Lexer f
+lexEOF :: Parser Char Token
+lexEOF = spaces *> Parser f
   where
     f s
       | null s = Right (None, s)
       | otherwise = Left $ "Could not lex: " ++ (head $ lines s)
 
 -- hard to generalize because token values have different types
-lexIntLit :: Lexer Token
+lexIntLit :: Parser Char Token
 lexIntLit = (IntLit . read) <$> lexRegex "^[0-9]+\\b"
 
-lexIdent :: Lexer Token
+lexIdent :: Parser Char Token
 lexIdent = Ident <$> lexRegex "^[a-zA-Z_]\\w*\\b"
 
-lexToken :: Lexer Token
+lexToken :: Parser Char Token
 lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken Return "^return\\b" <|>
            lexConstToken Int_ "^int\\b" <|>
@@ -103,16 +103,16 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexIdent
 
 -- for testing
-repeatLex :: Integer -> Lexer a -> Lexer [a]
-repeatLex 0 _ = pure []
-repeatLex n p = (:) <$> p <*> repeatLex (n - 1) p
+repeatParse :: Integer -> Parser Char a -> Parser Char [a]
+repeatParse 0 _ = pure []
+repeatParse n p = (:) <$> p <*> repeatParse (n - 1) p
 
 -- main function
-lexer :: Lexer [Token]
+lexer :: Parser Char [Token]
 lexer = (many $ spaces *> lexToken) <* lexEOF
 
 lexerEval :: String -> Either String ([Token], String)
-lexerEval = runLexer lexer
+lexerEval = runParser lexer
 
 removeComments :: String -> String -> String
 removeComments regex s
