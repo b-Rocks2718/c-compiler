@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
 
 module Lexer where
 
@@ -8,26 +8,22 @@ import System.Environment
 import Data.Maybe
 import Text.Regex.Posix
 
-newtype Parser a = Parser { runParser :: String -> Maybe (a, String) }
+newtype Parser a = Parser { runParser :: String -> Either String (a, String) }
+
+-- for error messages
+errorParse :: String -> Parser Token
+errorParse s = Parser $ const $ Left s
 
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy p = Parser f
   where
-    f [] = Nothing
+    f [] = Left "empty input"
     f (x:xs)
-        | p x       = Just (x, xs)
-        | otherwise = Nothing
+        | p x       = Right (x, xs)
+        | otherwise = Left "failed satisfy"
 
 char :: Char -> Parser Char
 char c = satisfy (== c)
-
-posInt :: Parser Int
-posInt = Parser f
-  where
-    f xs
-      | null ns   = Nothing
-      | otherwise = Just (read ns, rest)
-      where (ns, rest) = span isDigit xs
 
 first :: (a -> b) -> (a,c) -> (b,c)
 first f (x,y) = (f x, y)
@@ -36,15 +32,21 @@ instance Functor Parser where
   fmap f (Parser p) = Parser $ (fmap $ first f) . p
 
 instance Applicative Parser where
-  pure a = Parser (\s -> Just (a, s))
+  pure a = Parser (\s -> Right (a, s))
   (Parser fp) <*> xp = Parser $ \s ->
     case fp s of
-      Nothing     -> Nothing
-      Just (f,s') -> runParser (f <$> xp) s'
+      Left s       -> Left s
+      Right (f,s') -> runParser (f <$> xp) s'
+
+instance Alternative (Either String) where
+  empty = Left ""
+  (Left _) <|> r = r
+  l <|> _ = l
 
 instance Alternative Parser where
-  empty = Parser (const Nothing)
+  empty = Parser (const Left "")
   (Parser p1) <|> (Parser p2) = Parser (\s -> p1 s <|> p2 s)
+
 
 data Token = IntLit Int
            | Ident String
@@ -66,13 +68,9 @@ parseRegex :: String -> Parser String
 parseRegex regex = Parser f
   where
     f s
-      | s =~ regex = Just (match, drop (length match) s)
-      | otherwise = Nothing
+      | s =~ regex = Right (match, drop (length match) s)
+      | otherwise = Left $ "did not match regex: " ++ regex ++ " at " ++ s
       where match = (s =~ regex) :: String
-
-safeHead :: [a] -> Maybe a
-safeHead [] = Nothing
-safeHead (x:_) = Just x
 
 -- takes token and matching regex as input
 parseConstToken :: Token -> String -> Parser Token
@@ -95,7 +93,7 @@ parseToken = parseConstToken Void "^void\\b" <|> parseConstToken Return "^return
               parseConstToken Int_ "^int\\b" <|> parseCharToken OpenP '(' <|>
               parseCharToken CloseP ')' <|> parseCharToken OpenB '{' <|>
               parseCharToken CloseB '}' <|> parseCharToken Semi ';' <|>
-              parseIntLit <|> parseIdent
+              parseIntLit <|> parseIdent <|> errorParse "did not match any tokens"
 
 -- for testing
 repeatParse :: Integer -> Parser a -> Parser [a]
@@ -104,6 +102,10 @@ repeatParse n p = (:) <$> p <*> repeatParse (n - 1) p
 
 testStr :: String
 testStr = "\nint main(void) {\n  return 2;\n}"
+
+safeHead :: [a] -> Maybe a
+safeHead [] = Nothing
+safeHead (x:_) = Just x
 
 main :: IO ()
 main = do
