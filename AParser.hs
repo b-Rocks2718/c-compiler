@@ -1,8 +1,11 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module AParser (Parser, runParser, satisfy, char, posInt,
-                spaces, ident) where
+                spaces, ident, parseRegex) where
 
 import           Control.Applicative
 import           Data.Char
+import           Text.Regex.Posix
 
 newtype Parser a = Parser { runParser :: String -> Maybe (a, String) }
 
@@ -17,7 +20,7 @@ satisfy p = Parser f
 char :: Char -> Parser Char
 char c = satisfy (== c)
 
-posInt :: Parser Integer
+posInt :: Parser Int
 posInt = Parser f
   where
     f xs
@@ -43,7 +46,16 @@ instance Alternative Parser where
   (Parser p1) <|> (Parser p2) = Parser (\s -> p1 s <|> p2 s)
 
 spaces :: Parser String
-spaces = some (satisfy isSpace)
+spaces = many (satisfy isSpace)
 
 ident :: Parser String
-ident = (++) <$> many (satisfy isAlpha) <*> some (satisfy isAlphaNum)
+ident = (++) <$> some (satisfy isAlpha) <*> many (satisfy isAlphaNum)
+
+-- assumes you'll only try to match the beginning of the string
+parseRegex :: String -> Parser String
+parseRegex regex = Parser f
+  where
+    f s
+      | s =~ regex = Just (match, drop (length match) s)
+      | otherwise = Nothing
+      where match = (s =~ regex) :: String
