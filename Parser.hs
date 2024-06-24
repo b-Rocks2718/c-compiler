@@ -3,6 +3,7 @@ module Parser where
 
 import Lexer
 import Control.Applicative
+import System.Environment
 
 data Program   = Program Function
 data Function  = Function String Statement
@@ -34,25 +35,49 @@ instance Show Statement where
 instance Show Expr where
   show (Expr n) = "Constant(" ++ show n ++ ")"
 
-testAST :: Program
-testAST = Program $ Function "main" $ Statement $ Expr 2
-
 isIdent :: Token -> Bool
 isIdent (Ident _) = True
 isIdent _ = False
+
+isIntLit :: Token -> Bool
+isIntLit (IntLit _) = True
+isIntLit _ = False
 
 identName :: Token -> String
 identName (Ident s) = s
 identName _ = "THIS IS NOT AN IDENTIFIER!"
 
+intLitVal :: Token -> Int
+intLitVal (IntLit n) = n
+intLitVal _ = undefined -- hopefully we never end up here
+
+-- (for now) Program is just a function
 parseProgram :: Parser Token Program
 parseProgram = Program <$> parseFunction
 
+-- (for now) function looks like ident(void){stmt}
 parseFunction :: Parser Token Function
-parseFunction = liftA2 Function (identName <$> satisfy isIdent) (parseStatement)
+parseFunction = liftA2 Function
+  (identName <$> ((satisfy isIdent) <* match OpenP <*
+                 match Void <* match CloseP <* match OpenB))
+  (parseStatement) <* (match CloseB)
 
+-- (for now) stmt looks like return exp;
 parseStatement :: Parser Token Statement
-parseStatement = Parser $ const (Right (Statement $ Expr 0, []))
+parseStatement =
+  Statement <$> ((match Return) *> parseExpr <* (match Semi))
 
+-- (for now) exp is just an integer literal
 parseExpr :: Parser Token Expr
-parseExpr = undefined
+parseExpr = Expr <$> intLitVal <$> (satisfy isIntLit)
+
+main :: IO ()
+main = do
+  args <- getArgs
+  let path = head args
+  content <- readFile path
+  let result = preprocess content
+  let tokens = lexerEval result
+  putStrLn (show tokens)
+  let ast = runParser parseProgram <$> (fst <$> tokens)
+  putStrLn (show ast)

@@ -131,12 +131,3 @@ removeComments regex s
 preprocess :: String -> String
 preprocess = (removeComments "/\\*([^*]|\\*+[^/])*\\*+/") .
              unwords . lines . (removeComments "//.*$")
-
-main :: IO ()
-main = do
-  args <- getArgs
-  let path = head args
-  content <- readFile path
-  let result = preprocess content
-  let tokens = lexerEval result
-  putStrLn (show tokens)
