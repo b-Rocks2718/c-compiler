@@ -2,10 +2,11 @@
 module Parser where
 
 import Lexer
+import Control.Applicative
 
 data Program   = Program Function
-data Function  = Function String Statement -- name, body
-data Statement = Statement Expr -- only return statements for now
+data Function  = Function String Statement
+data Statement = Statement Expr -- just return statements for now
 data Expr      = Expr Int -- just constant int literals for now
 
 instance Show Program where
@@ -18,11 +19,17 @@ showFunc (Function name body) n =
   "\n" ++ tabs ++ ")"
   where tabs = replicate (4 * n) ' '
 
+instance Show Function where
+  show = flip showFunc 0
+
 -- only return statements for now
 showStatement :: Statement -> Int -> String
 showStatement (Statement expr) n =
   "Return(\n" ++ tabs ++ "    " ++ show expr ++ "\n" ++ tabs ++ ")"
   where tabs = replicate (4 * n) ' '
+
+instance Show Statement where
+  show = flip showStatement 0
 
 instance Show Expr where
   show (Expr n) = "Constant(" ++ show n ++ ")"
@@ -34,14 +41,18 @@ isIdent :: Token -> Bool
 isIdent (Ident _) = True
 isIdent _ = False
 
+identName :: Token -> String
+identName (Ident s) = s
+identName _ = "THIS IS NOT AN IDENTIFIER!"
+
 parseProgram :: Parser Token Program
-parseProgram = undefined
+parseProgram = Program <$> parseFunction
 
 parseFunction :: Parser Token Function
-parseFunction = undefined
+parseFunction = liftA2 Function (identName <$> satisfy isIdent) (parseStatement)
 
 parseStatement :: Parser Token Statement
-parseStatement = undefined
+parseStatement = Parser $ const (Right (Statement $ Expr 0, []))
 
 parseExpr :: Parser Token Expr
 parseExpr = undefined
