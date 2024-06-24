@@ -4,8 +4,6 @@ module Lexer where
 
 import Control.Applicative
 import Data.Char
-import System.Environment
-import Data.Maybe
 import Text.Regex.Posix
 
 newtype Parser a b =
@@ -48,7 +46,7 @@ data Token = IntLit Int
            | Ident String
            | Void
            | Int_
-           | Return
+           | Return_
            | OpenP
            | CloseP
            | OpenB
@@ -91,7 +89,7 @@ lexIdent = Ident <$> lexRegex "^[a-zA-Z_]\\w*\\b"
 
 lexToken :: Parser Char Token
 lexToken = lexConstToken Void "^void\\b" <|>
-           lexConstToken Return "^return\\b" <|>
+           lexConstToken Return_ "^return\\b" <|>
            lexConstToken Int_ "^int\\b" <|>
            lexConstToken OpenP "^\\(" <|>
            lexConstToken CloseP "^\\)" <|>

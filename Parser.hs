@@ -3,12 +3,11 @@ module Parser where
 
 import Lexer
 import Control.Applicative
-import System.Environment
 
 data Program   = Program Function
 data Function  = Function String Statement
-data Statement = Statement Expr -- just return statements for now
-data Expr      = Expr Int -- just constant int literals for now
+data Statement = Return Expr -- just return statements for now
+data Expr      = Lit Int -- just constant int literals for now
 
 instance Show Program where
   show (Program f) = "Program(\n" ++ showFunc f 1 ++ "\n)"
@@ -25,7 +24,7 @@ instance Show Function where
 
 -- only return statements for now
 showStatement :: Statement -> Int -> String
-showStatement (Statement expr) n =
+showStatement (Return expr) n =
   "Return(\n" ++ tabs ++ "    " ++ show expr ++ "\n" ++ tabs ++ ")"
   where tabs = replicate (4 * n) ' '
 
@@ -33,7 +32,7 @@ instance Show Statement where
   show = flip showStatement 0
 
 instance Show Expr where
-  show (Expr n) = "Constant(" ++ show n ++ ")"
+  show (Lit n) = "Constant(" ++ show n ++ ")"
 
 isIdent :: Token -> Bool
 isIdent (Ident _) = True
@@ -65,11 +64,11 @@ parseFunction = liftA2 Function
 -- (for now) stmt looks like return exp;
 parseStatement :: Parser Token Statement
 parseStatement =
-  Statement <$> ((match Return) *> parseExpr <* (match Semi))
+  Return <$> ((match Return_) *> parseExpr <* (match Semi))
 
 -- (for now) exp is just an integer literal
 parseExpr :: Parser Token Expr
-parseExpr = Expr <$> intLitVal <$> (satisfy isIntLit)
+parseExpr = Lit <$> intLitVal <$> (satisfy isIntLit)
 
 -- to ensure the entire file was parsed
 parseEOF :: Parser Token [a]
@@ -89,16 +88,3 @@ showAST (Left s) = s
 showTokens :: Either String ([Token], String) -> String
 showTokens (Right (ts, s)) = show ts
 showTokens (Left s) = s
-
-main :: IO ()
-main = do
-  args <- getArgs
-  let path = head args
-  content <- readFile path
-  putStrLn ("Input program:\n" ++ content)
-  let result = preprocess content
-  putStrLn ("Preprocessed code:\n" ++ result)
-  let tokens = lexerEval result
-  putStrLn ("\nTokens:\n" ++ showTokens tokens)
-  let ast = (fst <$> tokens) >>= (runParser parseProgram)
-  putStrLn ("\nSyntax tree:\n" ++ showAST ast)
