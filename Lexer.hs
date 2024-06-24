@@ -17,7 +17,7 @@ satisfy p = Parser f
     f [] = Left "empty input"
     f (x:xs)
         | p x       = Right (x, xs)
-        | otherwise = Left "failed satisfy"
+        | otherwise = Left $ "failed satisfy"
 
 match :: Eq a => a -> Parser a a
 match c = satisfy (==c)
@@ -74,7 +74,7 @@ lexRegex regex = Parser f
 lexConstToken :: Token -> String -> Parser Char Token
 lexConstToken t r = (const t) <$> lexRegex r
 
--- to ensure the entire file was parser
+-- to ensure the entire file was lexed
 lexEOF :: Parser Char Token
 lexEOF = spaces *> Parser f
   where

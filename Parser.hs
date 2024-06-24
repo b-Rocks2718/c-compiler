@@ -53,13 +53,13 @@ intLitVal _ = undefined -- hopefully we never end up here
 
 -- (for now) Program is just a function
 parseProgram :: Parser Token Program
-parseProgram = Program <$> parseFunction
+parseProgram = Program <$> parseFunction <* parseEOF
 
 -- (for now) function looks like ident(void){stmt}
 parseFunction :: Parser Token Function
 parseFunction = liftA2 Function
-  (identName <$> ((satisfy isIdent) <* match OpenP <*
-                 match Void <* match CloseP <* match OpenB))
+  (identName <$> (match Int_ *> (satisfy isIdent) <* match OpenP <*
+                 tryParse Void <* match CloseP <* match OpenB))
   (parseStatement) <* (match CloseB)
 
 -- (for now) stmt looks like return exp;
@@ -71,13 +71,34 @@ parseStatement =
 parseExpr :: Parser Token Expr
 parseExpr = Expr <$> intLitVal <$> (satisfy isIntLit)
 
+-- to ensure the entire file was parsed
+parseEOF :: Parser Token [a]
+parseEOF = Parser f
+  where
+    f ts
+      | null ts = Right ([], ts)
+      | otherwise = Left $ "Could not lex: " ++ show ts
+
+tryParse :: Eq a => a -> Parser a [a]
+tryParse a = (:[]) <$> (match a) <|> pure []
+
+showAST :: Either String (Program, [Token]) -> String
+showAST (Right (p, ts)) = show p
+showAST (Left s) = s
+
+showTokens :: Either String ([Token], String) -> String
+showTokens (Right (ts, s)) = show ts
+showTokens (Left s) = s
+
 main :: IO ()
 main = do
   args <- getArgs
   let path = head args
   content <- readFile path
+  putStrLn ("Input program:\n" ++ content)
   let result = preprocess content
+  putStrLn ("Preprocessed code:\n" ++ result)
   let tokens = lexerEval result
-  putStrLn (show tokens)
-  let ast = runParser parseProgram <$> (fst <$> tokens)
-  putStrLn (show ast)
+  putStrLn ("\nTokens:\n" ++ showTokens tokens)
+  let ast = (fst <$> tokens) >>= (runParser parseProgram)
+  putStrLn ("\nSyntax tree:\n" ++ showAST ast)
