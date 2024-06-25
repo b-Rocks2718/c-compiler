@@ -2,6 +2,7 @@
 module CodeGen where
 
 import System.Environment
+import Data.List.Split
 
 import Lexer
 import Parser
@@ -34,3 +35,6 @@ main = do
   putStrLn ("\nAsm tree:\n" ++ show asmAst)
   let code = progToCode <$> asmAst
   putStrLn ("\nAsm code:\n" ++ showEither code)
+  let outPath = (head $ splitOn "." path) ++ ".s"
+  writeFile outPath (showEither code) -- change this later
+  -- not a good idea to write a file if there's an error
