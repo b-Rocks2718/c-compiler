@@ -48,7 +48,7 @@ identName _ = "THIS IS NOT AN IDENTIFIER!"
 
 intLitVal :: Token -> Int
 intLitVal (IntLit n) = n
-intLitVal _ = undefined -- hopefully we never end up here
+intLitVal _ = undefined -- shoudln't happen, parser checks for IntLit
 
 -- (for now) Program is just a function
 parseProgram :: Parser Token Program

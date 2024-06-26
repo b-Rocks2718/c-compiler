@@ -58,6 +58,8 @@ data Instruction = Add  Reg Reg Reg
 instance Show Instruction where
   show (Addi rA rB n) =
     "\taddi " ++ show rA ++ show rB ++ show n ++ "\n"
+  show (Add rA rB rC) =
+    "\tadd " ++ show rA ++ show rB ++ show rC ++ "\n"
   show (Sys exc) = "\tsys " ++ show exc ++ "\n"
 
 data Exception = Exit -- will add more exceptions as OS is developed

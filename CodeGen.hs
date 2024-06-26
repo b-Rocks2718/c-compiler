@@ -19,6 +19,10 @@ showEither :: Either String String -> String
 showEither (Left s) = s
 showEither (Right s) = s
 
+writeEither :: String -> Either a String -> IO ()
+writeEither path (Right s) = writeFile path s
+writeEither _ (Left _) = return ()
+
 main :: IO ()
 main = do
   args <- getArgs
@@ -35,6 +39,9 @@ main = do
   putStrLn ("\nAsm tree:\n" ++ show asmAst)
   let code = progToCode <$> asmAst
   putStrLn ("\nAsm code:\n" ++ showEither code)
-  let outPath = (head $ splitOn "." path) ++ ".s"
-  writeFile outPath (showEither code) -- change this later
-  -- not a good idea to write a file if there's an error
+  let fileName = (head $ splitOn "." path)
+  let asmFile = fileName ++ ".s"
+  writeEither asmFile code
+  -- let binFile = fileName ++ ".bin"
+  -- let binCode = asmToBin  <$> code
+  -- writeEither binFile binCode
