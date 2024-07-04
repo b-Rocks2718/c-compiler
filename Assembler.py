@@ -363,8 +363,16 @@ def generate_opcode(line_num, tokens, labels, label_addresses, address):
 def assemble(name, tracked_labels):
     address = 0
     input_file = open(name, 'r')
+    # TODO: write a linker
+    # compiling the whole OS every time is dumb
+    os_file = open("os.s", 'r')
+    os_code = os_file.readlines()
     data = input_file.readlines()
+    os_file.close()
     input_file.close()
+
+    # "link" files
+    data = os_code + ["\n"] + data
     
     # first pass: convert labels to addresses
     labels = []
@@ -433,7 +441,7 @@ def assemble(name, tracked_labels):
             print(f"{label}: {address} = {hex(address)}")
     if os == True:
         defined_exceptions = {}
-        exc_rom = open("os_cpu/exc_rom.bin", "wb")
+        exc_rom = open("./ROMs/exc_rom.bin", "wb")
         exc_binary = []
         for label, address in zip(labels, label_addresses):
             if label in exception_dict:
