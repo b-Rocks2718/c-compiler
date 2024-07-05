@@ -6,8 +6,12 @@ import Control.Applicative
 
 data Program   = Program Function
 data Function  = Function String Statement
-data Statement = Return Expr -- just return statements for now
-data Expr      = Lit Int -- just constant int literals for now
+data Statement = Return Expr
+data Expr      = Lit Int
+               | Unary UnaryOp Expr
+
+data UnaryOp = Complement
+             | Negate
 
 instance Show Program where
   show (Program f) = "Program(\n" ++ showFunc f 1 ++ "\n)"
@@ -33,6 +37,10 @@ instance Show Statement where
 
 instance Show Expr where
   show (Lit n) = "Constant(" ++ show n ++ ")"
+  show (Unary Complement expr) =
+    "Complement(" ++ show expr ++ ")"
+  show (Unary Negate expr) =
+    "Negate(" ++ show expr ++ ")"
 
 isIdent :: Token -> Bool
 isIdent (Ident _) = True
@@ -42,33 +50,55 @@ isIntLit :: Token -> Bool
 isIntLit (IntLit _) = True
 isIntLit _ = False
 
+isUnaryOp :: Token -> Bool
+isUnaryOp Neg = True
+isUnaryOp Tilde = True
+isUnaryOp _ = False
+
 identName :: Token -> String
 identName (Ident s) = s
-identName _ = "THIS IS NOT AN IDENTIFIER!"
+identName _ = error "not an identifier"
 
 intLitVal :: Token -> Int
 intLitVal (IntLit n) = n
-intLitVal _ = undefined -- shoudln't happen, parser checks for IntLit
+intLitVal _ = error "not an int lit"
 
--- (for now) Program is just a function
+getUnaryOp :: Token -> UnaryOp
+getUnaryOp Tilde = Complement
+getUnaryOp Neg = Negate
+getUnaryOp _ = error "not an unary operator"
+
+-- Program is just a function
 parseProgram :: Parser Token Program
 parseProgram = Program <$> parseFunction <* parseEOF
 
--- (for now) function looks like ident(void){stmt}
+-- function looks like ident(void){stmt}
 parseFunction :: Parser Token Function
 parseFunction = liftA2 Function
   (identName <$> (match Int_ *> (satisfy isIdent) <* match OpenP <*
                  tryParse Void <* match CloseP <* match OpenB))
   (parseStatement) <* (match CloseB)
 
--- (for now) stmt looks like return exp;
+-- stmt is just return exp;
 parseStatement :: Parser Token Statement
 parseStatement =
   Return <$> ((match Return_) *> parseExpr <* (match Semi))
 
--- (for now) exp is just an integer literal
+parseLit :: Parser Token Expr
+parseLit = Lit <$> intLitVal <$> (satisfy isIntLit)
+
+parseUnary :: Parser Token Expr
+parseUnary = Unary <$> getUnaryOp <$> (satisfy isUnaryOp) <*>
+             parseExpr
+
+parseParens :: Parser Token Expr
+parseParens = match OpenP *> parseExpr <* match CloseP
+
+-- exp is just an integer literal or unary op on an exp
 parseExpr :: Parser Token Expr
-parseExpr = Lit <$> intLitVal <$> (satisfy isIntLit)
+parseExpr = parseLit <|>
+            parseUnary <|>
+            parseParens
 
 -- to ensure the entire file was parsed
 parseEOF :: Parser Token [a]

@@ -52,6 +52,9 @@ data Token = IntLit Int
            | OpenB
            | CloseB
            | Semi
+           | Tilde
+           | Dec
+           | Neg
            | None -- only used for error detection
            deriving (Show, Eq)
 
@@ -96,6 +99,9 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken OpenB "^\\{" <|>
            lexConstToken CloseB "^\\}" <|>
            lexConstToken Semi "^;" <|>
+           lexConstToken Tilde "^~" <|>
+           lexConstToken Dec "^--" <|>
+           lexConstToken Neg "^-" <|>
            lexIntLit <|>
            lexIdent
 
