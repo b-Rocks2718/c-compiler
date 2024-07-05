@@ -7,7 +7,7 @@ function bcc {
     name=${file%.*}
     
     # run the compiler
-    runhaskell ~/c-compiler/CodeGen.hs ${file}
+    runhaskell -i/home/b_rocks2718/c-compiler ~/c-compiler/CodeGen.hs ${file}
 
     # run the assembler
     python3 ~/c-compiler/Assembler.py ${name}.s
@@ -16,5 +16,4 @@ function bcc {
     # put 'source ~/c-compiler/.bcc.sh' in the .bashrc file
 
     # then 'bcc test.c' should compile test.c
-    # only works while in the 'c-compiler' directory for now
 }

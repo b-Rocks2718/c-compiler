@@ -365,7 +365,7 @@ def assemble(name, tracked_labels):
     input_file = open(name, 'r')
     # TODO: write a linker
     # compiling the whole OS every time is dumb
-    os_file = open("test_code/os.s", 'r')
+    os_file = open("/home/b_rocks2718/c-compiler/test_code/os.s", 'r')
     os_code = os_file.readlines()
     data = input_file.readlines()
     os_file.close()
@@ -441,7 +441,8 @@ def assemble(name, tracked_labels):
             print(f"{label}: {address} = {hex(address)}")
     if os == True:
         defined_exceptions = {}
-        exc_rom = open("./ROMs/exc_rom.bin", "wb")
+        exc_rom = open("/home/b_rocks2718/c-compiler/ROMs/exc_rom.bin",
+                       "wb")
         exc_binary = []
         for label, address in zip(labels, label_addresses):
             if label in exception_dict:

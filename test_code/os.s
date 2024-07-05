@@ -12,7 +12,7 @@
 	
 	# load program into user space
 	movi r2, main
-	lui  r3, 1024 # size of program (in words)
+	lui  r3, 100 # size of program (in words)
 	lui  r4, 0x8000
 	movi r7, move_to_user_space
 	jalr r7, r7	
