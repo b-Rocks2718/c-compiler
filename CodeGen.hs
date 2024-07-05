@@ -15,9 +15,13 @@ funcToCode :: AsmFunc -> String
 funcToCode (AsmFunc name body) =
   name ++ ":\n" ++ (body >>= show)
 
-showEither :: Either String String -> String
-showEither (Left s) = s
-showEither (Right s) = s
+showEither :: (Show a, Show b) => Either a b -> String
+showEither (Left s) = show s
+showEither (Right s) = show s
+
+showEitherStr :: Either String String -> String
+showEitherStr (Left s) = s
+showEitherStr (Right s) = s
 
 writeEither :: String -> Either a String -> IO ()
 writeEither path (Right s) = writeFile path s
@@ -36,9 +40,9 @@ main = do
   let ast = (fst <$> tokens) >>= (runParser parseProgram)
   putStrLn ("\nSyntax tree:\n" ++ showAST ast)
   let asmAst = progToAsm <$> fst <$> ast
-  putStrLn ("\nAsm tree:\n" ++ show asmAst)
+  putStrLn ("\nAsm tree:\n" ++ showEither asmAst)
   let code = progToCode <$> asmAst
-  putStrLn ("\nAsm code:\n" ++ showEither code)
+  putStrLn ("\nAsm code:\n" ++ showEitherStr code)
   let fileName = (head $ splitOn "." path)
   let asmFile = fileName ++ ".s"
   writeEither asmFile code

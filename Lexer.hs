@@ -45,16 +45,16 @@ instance Alternative (Parser a) where
 data Token = IntLit Int
            | Ident String
            | Void
-           | Int_
-           | Return_
+           | IntTok
+           | ReturnTok
            | OpenP
            | CloseP
            | OpenB
            | CloseB
            | Semi
            | Tilde
-           | Dec
-           | Neg
+           | DecTok
+           | Minus
            | None -- only used for error detection
            deriving (Show, Eq)
 
@@ -92,16 +92,16 @@ lexIdent = Ident <$> lexRegex "^[a-zA-Z_]\\w*\\b"
 
 lexToken :: Parser Char Token
 lexToken = lexConstToken Void "^void\\b" <|>
-           lexConstToken Return_ "^return\\b" <|>
-           lexConstToken Int_ "^int\\b" <|>
+           lexConstToken ReturnTok "^return\\b" <|>
+           lexConstToken IntTok "^int\\b" <|>
            lexConstToken OpenP "^\\(" <|>
            lexConstToken CloseP "^\\)" <|>
            lexConstToken OpenB "^\\{" <|>
            lexConstToken CloseB "^\\}" <|>
            lexConstToken Semi "^;" <|>
            lexConstToken Tilde "^~" <|>
-           lexConstToken Dec "^--" <|>
-           lexConstToken Neg "^-" <|>
+           lexConstToken DecTok "^--" <|>
+           lexConstToken Minus "^-" <|>
            lexIntLit <|>
            lexIdent
 
