@@ -1,2 +1,2 @@
-This is a WIP compiler for a subset of C targeting the cpu I'm building.
-Since I'm not done building it yet, I'll test the compiler on the simulation I have of the cpu in Digital. At some point I'll make a repository with the cpu schematics.
+This is a WIP C compiler targeting the cpu I'm building.
+Since I'm not done building the cpu, I'll test the compiler on the simulation I have of the cpu in Digital. At some point I'll make a repository with the cpu schematics.
