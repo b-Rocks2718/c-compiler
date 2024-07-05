@@ -365,7 +365,7 @@ def assemble(name, tracked_labels):
     input_file = open(name, 'r')
     # TODO: write a linker
     # compiling the whole OS every time is dumb
-    os_file = open("os.s", 'r')
+    os_file = open("test_code/os.s", 'r')
     os_code = os_file.readlines()
     data = input_file.readlines()
     os_file.close()
@@ -463,7 +463,7 @@ def assemble_to_binary(name, tracked_labels = []):
     assemble(name, tracked_labels)
 
     # make output filename from input
-    file_name = "test.bin"
+    file_name = name.split('.')[0] + ".bin"
 
     # open file
     input_file = open(name.split('.')[0] + ".out", 'r')
