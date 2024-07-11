@@ -2,5 +2,5 @@
 int main(void) {
   /* so is this
      return 27 */
-  return 23;
+  return ~-9;
 }

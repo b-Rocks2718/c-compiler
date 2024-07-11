@@ -29,9 +29,9 @@ EXC_PRIV:
 	sys MODE_HALT
 
 EXIT:
-	# user programs return result in r7
+	# user programs return result in r3
 	# put it in cr1 for testing
-	tocr r1, r7
+	tocr r1, r3
 	sys MODE_HALT
 
 # not worrying about these for now

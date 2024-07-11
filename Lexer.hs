@@ -53,7 +53,12 @@ data Token = IntLit Int
            | CloseB
            | Semi
            | Tilde
+           | IncTok
            | DecTok
+           | Plus
+           | Asterisk
+           | Slash
+           | Percent
            | Minus
            | None -- only used for error detection
            deriving (Show, Eq)
@@ -100,7 +105,12 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken CloseB "^\\}" <|>
            lexConstToken Semi "^;" <|>
            lexConstToken Tilde "^~" <|>
+--           lexConstToken IncTok "^++" <|>
+           lexConstToken Asterisk "^\\*" <|>
+           lexConstToken Slash "^/" <|>
+           lexConstToken Percent "^\\%" <|>
            lexConstToken DecTok "^--" <|>
+           lexConstToken Plus "^\\+" <|>
            lexConstToken Minus "^-" <|>
            lexIntLit <|>
            lexIdent
@@ -135,3 +145,12 @@ removeComments regex s
 preprocess :: String -> String
 preprocess = (removeComments "/\\*([^*]|\\*+[^/])*\\*+/") .
              unwords . lines . (removeComments "//.*$")
+
+-- useful for testing
+showEither :: (Show a, Show b) => Either a b -> String
+showEither (Left s) = show s
+showEither (Right s) = show s
+
+showEitherStr :: Either String String -> String
+showEitherStr (Left s) = s
+showEitherStr (Right s) = s

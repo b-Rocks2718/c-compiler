@@ -13,6 +13,7 @@ data ASTExpr = ASTLit Int
 
 data UnaryOp = Complement
              | Negate
+             deriving (Show)
 
 instance Show ASTProg where
   show (ASTProg f) = "Program(\n" ++ showFunc f 1 ++ "\n)"
