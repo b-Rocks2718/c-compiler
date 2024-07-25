@@ -64,8 +64,9 @@ toMachineInstr (AsmUnary Negate (Stack n)) =
 toMachineInstr (AsmUnary Complement (Reg r)) = [Not r r]
 toMachineInstr (AsmUnary Negate (Reg r)) = [Sub r R0 r]
 toMachineInstr (AllocateStack n) = [Addi sp sp n] -- n should be negative
-toMachineInstr (Ret) = [Addi sp bp 0, Pop bp, Pop R7]
+toMachineInstr Ret = [Addi sp bp 0, Pop bp, Pop R7]
                        -- Jalr R0 R7 for non-main functions
+toMachineInstr _ = undefined -- TODO: implement the rest
 
 progToMachine :: AsmProg -> [MachineInstr]
 progToMachine (AsmProg (AsmFunc name instrs)) =
@@ -77,7 +78,7 @@ asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
 asmToStr (Sys exc) = "\tsys " ++ (toUpper <$> show exc)
 asmToStr instr =
-  '\t' : filter (\c -> c/= '(' && c /= ')') (toLower <$> (show instr))
+  '\t' : filter (\c -> c/= '(' && c /= ')') (toLower <$> show instr)
 
 writeEither :: String -> Either a String -> IO ()
 writeEither path (Right s) = writeFile path s
@@ -93,15 +94,15 @@ main = do
   putStrLn ("Preprocessed code:\n" ++ processed)
   let tokens = lexerEval processed
   putStrLn ("\nTokens:\n" ++ showTokens tokens)
-  let ast = (fst <$> tokens) >>= (runParser parseProgram)
+  let ast = tokens >>= (runParser parseProgram . fst)
   putStrLn ("\nSyntax tree:\n" ++ showAST ast)
-  let tac = progToTAC <$> fst <$> ast
+  let tac = progToTAC . fst <$> ast
   putStrLn ("\nTAC:\n" ++ showEither tac)
   let asm = progToAsm <$> tac
   putStrLn ("AsmAST:\n" ++ showEither asm)
   let asm' = progToMachine <$> asm
   let code = unlines <$> (fmap asmToStr <$> asm')
   putStrLn ("Code:\n" ++ showEitherStr code)
-  let fileName = (head $ splitOn "." path)
+  let fileName = head $ splitOn "." path
   let asmFile = fileName ++ ".s"
   writeEither asmFile code

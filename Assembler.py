@@ -385,6 +385,7 @@ def assemble(name, tracked_labels):
         line = line.replace("\n", "")
         line = line.replace("\t", " ")
         if '#' in line:
+            # remove comments
             index = line.index('#')
             line = line[:index - 1]
         tokens = line.split(" ")
@@ -414,6 +415,7 @@ def assemble(name, tracked_labels):
         line = line.replace("\n", "")
         line = line.replace("\t", " ")
         if '#' in line:
+            # remove comments
             index = line.index('#')
             line = line[:index - 1]
         opcode = ""
@@ -440,6 +442,7 @@ def assemble(name, tracked_labels):
         if label in tracked_labels:
             print(f"{label}: {address} = {hex(address)}")
     if os == True:
+        # generate table of addresses for exception handlers
         defined_exceptions = {}
         exc_rom = open("ROMs/exc_rom.bin",
                        "wb")

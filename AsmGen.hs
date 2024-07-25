@@ -11,7 +11,7 @@ data AsmFunc = AsmFunc String [AsmInstr]
 instance Show AsmFunc where
   show (AsmFunc name instrs) =
     "AsmFunc " ++ show name ++ ":\n" ++
-    (unlines $ show <$> instrs)
+    unlines (show <$> instrs)
 
 data AsmInstr = Mov Operand Operand
               | AsmUnary UnaryOp Operand
@@ -52,9 +52,9 @@ progToAsm (TACProg f) = AsmProg $ funcToAsm f
 
 funcToAsm :: TACFunc -> AsmFunc
 funcToAsm (TACFunc name body) =
-  AsmFunc name $ (replacePseudo maps) <$> instrs
+  AsmFunc name $ replacePseudo maps <$> instrs
   where (maps, size) = createMaps instrs
-        instrs = [AllocateStack (size + 1)] ++ (body >>= exprToAsm)
+        instrs = AllocateStack (size + 1) : (body >>= exprToAsm)
 
 exprToAsm :: TACInstr -> [AsmInstr]
 exprToAsm (TACReturn val) = [Mov (Reg R3) (tacValToAsm val), Ret]
@@ -66,27 +66,27 @@ createMaps :: [AsmInstr] -> ([(Operand, Operand)], Int)
 createMaps xs = foldr f ([], -1) (getOps xs)
   where f opr (maps, size) =
           case opr of
-            (Pseudo _) -> case (lookup opr maps) of
+            (Pseudo _) -> case lookup opr maps of
               (Just _) -> (maps, size)
-              (Nothing) -> ((opr, Stack size):maps, size - 1)
+              Nothing -> ((opr, Stack size):maps, size - 1)
             _ -> (maps, size)
 
 getOps :: [AsmInstr] -> [Operand]
-getOps xs = (xs >>= f)
+getOps xs = xs >>= f
   where f (Mov a b) = [a, b]
         f (AsmUnary _ a) = [a]
         f _ = []
 
 replacePseudo :: [(Operand, Operand)] -> AsmInstr -> AsmInstr
 replacePseudo maps = mapOps f
-  where f op = case (lookup op maps) of
+  where f op = case lookup op maps of
           (Just newOp) -> newOp
           Nothing -> op
 
 mapOps :: (Operand -> Operand) -> AsmInstr -> AsmInstr
 mapOps f (Mov a b) = Mov (f a) (f b)
 mapOps f (AsmUnary op a) = AsmUnary op (f a)
-mapOps f x@(_) = x
+mapOps f x = x
   
 tacValToAsm :: TACVal -> Operand
 tacValToAsm (TACLit n) = AsmLit n

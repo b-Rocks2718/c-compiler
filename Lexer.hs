@@ -9,22 +9,22 @@ import Text.Regex.Posix
 newtype Parser a b =
   Parser { runParser :: [a] -> Either String (b, [a]) }
 
-satisfy :: (a -> Bool) -> Parser a a
+satisfy :: Show a => (a -> Bool) -> Parser a a
 satisfy p = Parser f
   where
     f [] = Left "empty input"
     f (x:xs)
         | p x       = Right (x, xs)
-        | otherwise = Left $ "failed satisfy"
+        | otherwise = Left $ show x ++ " failed satisfy"
 
-match :: Eq a => a -> Parser a a
+match :: (Show a, Eq a) => a -> Parser a a
 match c = satisfy (==c)
 
 first :: (a -> b) -> (a,c) -> (b,c)
 first f (x,y) = (f x, y)
 
 instance Functor (Parser a) where
-  fmap f (Parser p) = Parser $ (fmap $ first f) . p
+  fmap f (Parser p) = Parser $ fmap (first f) . p
 
 instance Applicative (Parser a) where
   pure a = Parser (\s -> Right (a, s))
@@ -73,12 +73,12 @@ lexRegex regex = Parser f
     f s
       | s =~ regex = Right (match, drop (length match) s)
       | otherwise = Left $ "did not match regex: " ++ regex ++
-        " at " ++ (head $ lines s)
+        " at " ++ head (lines s)
       where match = (s =~ regex) :: String
 
 -- takes token and matching regex as input
 lexConstToken :: Token -> String -> Parser Char Token
-lexConstToken t r = (const t) <$> lexRegex r
+lexConstToken t r = t <$ lexRegex r
 
 -- to ensure the entire file was lexed
 lexEOF :: Parser Char Token
@@ -86,11 +86,11 @@ lexEOF = spaces *> Parser f
   where
     f s
       | null s = Right (None, s)
-      | otherwise = Left $ "Could not lex: " ++ (head $ lines s)
+      | otherwise = Left $ "Could not lex: " ++ head (lines s)
 
 -- hard to generalize because token values have different types
 lexIntLit :: Parser Char Token
-lexIntLit = (IntLit . read) <$> lexRegex "^[0-9]+\\b"
+lexIntLit = IntLit . read <$> lexRegex "^[0-9]+\\b"
 
 lexIdent :: Parser Char Token
 lexIdent = Ident <$> lexRegex "^[a-zA-Z_]\\w*\\b"
@@ -105,7 +105,7 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken CloseB "^\\}" <|>
            lexConstToken Semi "^;" <|>
            lexConstToken Tilde "^~" <|>
---           lexConstToken IncTok "^++" <|>
+           lexConstToken IncTok "^\\+\\+" <|>
            lexConstToken Asterisk "^\\*" <|>
            lexConstToken Slash "^/" <|>
            lexConstToken Percent "^\\%" <|>
@@ -122,7 +122,7 @@ repeatParse n p = (:) <$> p <*> repeatParse (n - 1) p
 
 -- main function
 lexer :: Parser Char [Token]
-lexer = (many $ spaces *> lexToken) <* lexEOF
+lexer = many (spaces *> lexToken) <* lexEOF
 
 lexerEval :: String -> Either String ([Token], String)
 lexerEval = runParser lexer
@@ -143,8 +143,8 @@ removeComments regex s
 -- then newlines are removed
 -- then multi line (/* */) comments can be removed
 preprocess :: String -> String
-preprocess = (removeComments "/\\*([^*]|\\*+[^/])*\\*+/") .
-             unwords . lines . (removeComments "//.*$")
+preprocess = removeComments "/\\*([^*]|\\*+[^/])*\\*+/" .
+             unwords . lines . removeComments "//.*$"
 
 -- useful for testing
 showEither :: (Show a, Show b) => Either a b -> String

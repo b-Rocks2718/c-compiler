@@ -13,7 +13,7 @@ data TACInstr = TACReturn TACVal
 instance Show TACFunc where
   show (TACFunc name instrs) =
     "TACFunc " ++ show name ++ ":\n" ++
-    (unlines $ show <$> instrs)
+    unlines (show <$> instrs)
 
 -- temporary variable type
 data TACVal   = TACLit Int
@@ -41,3 +41,4 @@ exprToTAC name (ASTUnary op expr) =
         src@(TACVar srcName) = snd rslt -- dst is always a variable
         n = show (read [last srcName] + 1) -- increment counter
         dst = TACVar $ name ++ ".tmp." ++ n
+exprToTAC _ = undefined -- TODO: implement the rest
