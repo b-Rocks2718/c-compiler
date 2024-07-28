@@ -18,7 +18,7 @@ div:
 	push r5
 	addi r5 r0 0
 div_loop:
-	cmp r4 r3
+	cmp r3 r4
 	bn div_end
 	addi r5 r5 1
 	sub r3 r3 r4

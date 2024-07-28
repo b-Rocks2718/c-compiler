@@ -5,14 +5,14 @@
 	# to user space and run it in user mode
 	
 	# for large programs, you may need to 
-	# change the value in line 14
+	# change the value in line 15
 	
 	# set up mem map
 	movi r6, 0x0020
 	
 	# load program into user space
 	movi r2, start
-	lui  r3, 100 # size of program (in words)
+	lui  r3, 1000 # size of program (in words)
 	lui  r4, 0x8000
 	movi r7, move_to_user_space
 	jalr r7, r7	
