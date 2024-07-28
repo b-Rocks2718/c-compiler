@@ -8,13 +8,9 @@ import TAC
 data AsmProg = AsmProg AsmFunc deriving (Show)
 data AsmFunc = AsmFunc String [AsmInstr]
 
-instance Show AsmFunc where
-  show (AsmFunc name instrs) =
-    "AsmFunc " ++ show name ++ ":\n" ++
-    unlines (show <$> instrs)
-
 data AsmInstr = Mov Operand Operand
-              | AsmUnary UnaryOp Operand
+              | AsmUnary UnaryOp Operand Operand
+              | AsmBinary BinOp Operand Operand Operand
               | AllocateStack Int -- sub r1 r1 n
               | Ret -- pop r3, jalr r0 r3
               deriving (Show)
@@ -35,7 +31,12 @@ sp :: Reg
 sp = R1
 
 bp :: Reg
-bp = R1
+bp = R2
+
+instance Show AsmFunc where
+  show (AsmFunc name instrs) =
+    "AsmFunc " ++ show name ++ ":\n" ++
+    unlines (show <$> instrs)
 
 instance Show Reg where
   show R0 = "r0 "
@@ -57,13 +58,16 @@ funcToAsm (TACFunc name body) =
         instrs = AllocateStack (size + 1) : (body >>= exprToAsm)
 
 exprToAsm :: TACInstr -> [AsmInstr]
-exprToAsm (TACReturn val) = [Mov (Reg R3) (tacValToAsm val), Ret]
-exprToAsm (TACUnary op dst src) =
-  [Mov (tacValToAsm dst) (tacValToAsm src),
-   AsmUnary op (tacValToAsm dst)]
+exprToAsm instr = 
+  case instr of 
+    (TACReturn val) -> [Mov (Reg R3) (tacValToAsm val), Ret]
+    (TACUnary op dst src) ->
+      [AsmUnary op (tacValToAsm dst) (tacValToAsm src)]
+    (TACBinary op dst src1 src2) -> 
+      [AsmBinary op (tacValToAsm dst) (tacValToAsm src1) (tacValToAsm src2)]
 
 createMaps :: [AsmInstr] -> ([(Operand, Operand)], Int)
-createMaps xs = foldr f ([], -1) (getOps xs)
+createMaps xs = foldr f ([], -1) (xs >>= getOps)
   where f opr (maps, size) =
           case opr of
             (Pseudo _) -> case lookup opr maps of
@@ -71,12 +75,26 @@ createMaps xs = foldr f ([], -1) (getOps xs)
               Nothing -> ((opr, Stack size):maps, size - 1)
             _ -> (maps, size)
 
-getOps :: [AsmInstr] -> [Operand]
-getOps xs = xs >>= f
-  where f (Mov a b) = [a, b]
-        f (AsmUnary _ a) = [a]
-        f _ = []
+getOps :: AsmInstr -> [Operand]
+getOps x = getDst x ++ getSrcs x
 
+getSrcs :: AsmInstr -> [Operand]
+getSrcs x = 
+  case x of
+    Mov a b -> [b]
+    AsmUnary _ a b -> [b]
+    AsmBinary _ a b c -> [b, c]
+    _ -> []
+
+getDst :: AsmInstr -> [Operand]
+getDst x =
+  case x of 
+    Mov a b -> [a]
+    AsmUnary _ a b -> [a]
+    AsmBinary _ a b c -> [a]
+    _ -> []
+
+-- map identifiers used as src/dst to stack locations
 replacePseudo :: [(Operand, Operand)] -> AsmInstr -> AsmInstr
 replacePseudo maps = mapOps f
   where f op = case lookup op maps of
@@ -85,7 +103,8 @@ replacePseudo maps = mapOps f
 
 mapOps :: (Operand -> Operand) -> AsmInstr -> AsmInstr
 mapOps f (Mov a b) = Mov (f a) (f b)
-mapOps f (AsmUnary op a) = AsmUnary op (f a)
+mapOps f (AsmUnary op a b) = AsmUnary op (f a) (f b)
+mapOps f (AsmBinary op a b c) = AsmBinary op (f a) (f b) (f c)
 mapOps f x = x
   
 tacValToAsm :: TACVal -> Operand

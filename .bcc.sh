@@ -10,7 +10,7 @@ function bcc {
     runhaskell -i/home/b_rocks2718/c-compiler ~/c-compiler/CodeGen.hs ${file}
 
     # run the assembler
-    python3 ~/c-compiler/Assembler.py ${name}.s
+    python3 ~/c-compiler/Assembler.py ${name}.s test_code/arithmetic.s
 
     # to use bcc command:
     # put 'source ~/c-compiler/.bcc.sh' in the .bashrc file

@@ -3,16 +3,30 @@ module Parser where
 
 import Lexer
 import Control.Applicative
+import Data.List ( foldl' )
+
+{-   Grammar:
+
+<program> ::= <function>
+<function> ::= "int" <identifier> "(" "void" ")" "{" <statement> "}"
+<statement> ::= "return" <exp> ";"
+<exp> ::= <factor> | <exp> <binop> <exp>
+<factor> ::= <int> | <unop> <factor> | "(" <exp> ")"
+<unop> ::= "-" | "~"
+<binop> ::= "-" | "+" | "*" | "/" | "%"
+<identifier> ::= ? An identifier token ?
+<int> ::= ? A constant token ?
+-}
 
 -- AST data structure
 data ASTProg = ASTProg ASTFunc
 data ASTFunc = ASTFunc String ASTStmt
 data ASTStmt = ASTReturn ASTExpr
 data ASTExpr = Factor Factor
-             | ASTBinary ASTExpr BinOp ASTExpr
+             | ASTBinary BinOp ASTExpr ASTExpr
 data Factor = ASTLit Int
              | ASTUnary UnaryOp Factor
-             | FactorExp ASTExpr
+             | FactorExpr ASTExpr
 
 data UnaryOp = Complement
              | Negate
@@ -34,7 +48,6 @@ showFunc (ASTFunc name body) n =
 instance Show ASTFunc where
   show = flip showFunc 0
 
--- only return statements for now
 showStatement :: ASTStmt -> Int -> String
 showStatement (ASTReturn expr) n =
   "Return(\n" ++ tabs ++ "    " ++ show expr ++ "\n" ++ tabs ++ ")"
@@ -45,13 +58,13 @@ instance Show ASTStmt where
 
 instance Show ASTExpr where
   show (Factor x) = show x
-  show (ASTBinary expl op expr) = 
-    show op ++ "(" ++ show expl ++ ", " ++ show expr ++ ")"
+  show (ASTBinary op left right) =
+    show op ++ "("  ++ show left ++ ", " ++ show right ++ ")"
 
 instance Show Factor where
   show (ASTLit n) = "Constant(" ++ show n ++ ")"
   show (ASTUnary op expr) = show op ++ "(" ++ show expr ++ ")"
-  show (FactorExp expr) = show expr
+  show (FactorExpr expr) = show expr
 
 isIdent :: Token -> Bool
 isIdent (Ident _) = True
@@ -95,18 +108,22 @@ getBinOp Slash = DivOp
 getBinOp Percent = ModOp
 getBinOp x = error $ show x ++ " is not a binary operator"
 
--- Program is just a function
+getPrec :: BinOp -> Int
+getPrec MulOp = 50
+getPrec DivOp = 50
+getPrec ModOp = 50
+getPrec AddOp = 45
+getPrec SubOp = 45
+
 parseProgram :: Parser Token ASTProg
 parseProgram = ASTProg <$> parseFunction <* parseEOF
 
--- function looks like ident(void){stmt}
 parseFunction :: Parser Token ASTFunc
 parseFunction = liftA2 ASTFunc
   (identName <$> (match IntTok *> satisfy isIdent <* match OpenP <*
-                 tryParse Void <* match CloseP <* match OpenB))
+                 optional (match Void) <* match CloseP <* match OpenB))
   parseStatement <* match CloseB
 
--- stmt is just return exp;
 parseStatement :: Parser Token ASTStmt
 parseStatement =
   ASTReturn <$> (match ReturnTok *> parseExpr <* match Semi)
@@ -118,29 +135,48 @@ parseUnary :: Parser Token Factor
 parseUnary = ASTUnary . getUnaryOp <$> satisfy isUnaryOp <*>
              parseFactor
 
-parseParens :: Parser Token Factor
-parseParens = match OpenP *> parseFactor <* match CloseP
+-- adds next factor to binary expression
+-- needed to make operators left-associative
+parseBinExpand :: Parser Token ASTExpr -> Int -> Parser Token (Maybe ASTExpr)
+parseBinExpand parser minPrec = 
+  expanded <|> pure Nothing where
+  expanded = do
+    left <- parser
+    op <- getBinOp <$> satisfy isBinOp
+    let nextPrec = getPrec op
+    if nextPrec >= minPrec 
+    then do 
+        -- higher precedence: create new ASTExpr
+        right <- parseBin (Factor <$> parseFactor) (nextPrec + 1)
+        return . Just $ ASTBinary op left right
+    else empty -- will just use left expr
 
--- exp is just an integer literal or unary op on an exp
+-- need monadic parsing to avoid left-recursion
+parseBin :: Parser Token ASTExpr -> Int -> Parser Token ASTExpr
+parseBin parser minPrec = do 
+  mEnd <- parseBinExpand parser minPrec
+  case mEnd of
+    Nothing -> parser
+    Just newLeft -> parseBin (pure newLeft) minPrec
+
+parseParens :: Parser Token Factor
+parseParens = match OpenP *> (FactorExpr <$> parseExpr) <* match CloseP
+
 parseFactor :: Parser Token Factor
 parseFactor = parseLit <|>
-            parseUnary <|>
-            parseParens
+              parseUnary <|>
+              parseParens
 
 parseExpr :: Parser Token ASTExpr
-parseExpr = (Factor <$> parseFactor) <|> 
-            liftA3 ASTBinary parseExpr (getBinOp <$> satisfy isBinOp) parseExpr
+parseExpr = parseBin (Factor <$> parseFactor) 0
 
 -- to ensure the entire file was parsed
-parseEOF :: Parser Token [a]
+parseEOF :: Parser Token ()
 parseEOF = Parser f
   where
     f ts
-      | null ts = Right ([], ts)
+      | null ts = Right ((), ts)
       | otherwise = Left $ "Could not lex: " ++ show ts
-
-tryParse :: (Show a, Eq a) => a -> Parser a [a]
-tryParse a = (:[]) <$> match a <|> pure []
 
 -- print Eithers without 'Left'/'Right'
 showAST :: Either String (ASTProg, [Token]) -> String

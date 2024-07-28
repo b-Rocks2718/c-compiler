@@ -1,17 +1,17 @@
 	# os = true
-	
-	# this file won't assemble on its own
-	# to use it, add the label 'main' at the end
-	# along with the code you want to run
+
+	# the cpu starts in kernel mode
+	# this code will copy code appended after 'start' 
+	# to user space and run it in user mode
 	
 	# for large programs, you may need to 
-	# change the value in line 15
+	# change the value in line 14
 	
 	# set up mem map
 	movi r6, 0x0020
 	
 	# load program into user space
-	movi r2, main
+	movi r2, start
 	lui  r3, 100 # size of program (in words)
 	lui  r4, 0x8000
 	movi r7, move_to_user_space
@@ -65,9 +65,11 @@ move_to_user_space:
 move_to_user_space_loop:
 	lw   r7, r2, 0
 	addi r2, r2, 1
-	sw   r7, r4, 0		# 0x2f
+	sw   r7, r4, 0		
 	addi r4, r4, 1
 	addi r3, r3, -1
 	bnz move_to_user_space_loop
 	kpop r7
 	jalr r0, r7
+
+start:

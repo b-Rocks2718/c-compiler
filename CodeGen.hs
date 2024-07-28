@@ -1,9 +1,9 @@
 
 module CodeGen where
 
-import System.Environment
-import Data.List.Split
-import Data.Char
+import System.Environment ( getArgs )
+import Data.List.Split ( splitOn )
+import Data.Char ( toLower, toUpper )
 
 import Lexer
 import Parser
@@ -31,9 +31,11 @@ data MachineInstr = Add  Reg Reg Reg
                   | Shlc Reg Reg -- shift left w/ carry
                   | Cmp  Reg Reg -- compare
                   | Lui  Reg Int -- load upper immediate
+                  | Movi Reg Int
                   | Jalr Reg Reg -- jump and link register
                   | Push Reg
                   | Pop  Reg
+                  | Call String
                   | Bz   String -- branch if zero
                   | Bp   String -- branch if positive
                   | Bn   String -- branch if negative
@@ -50,23 +52,48 @@ data MachineInstr = Add  Reg Reg Reg
 
 -- will add more exceptions as OS is developed
 data Exception = Exit
-               deriving (Show)
+  deriving (Show)
 
+-- R3 and R4 are used as scratch registers
+-- this function assumes no other registers are used in previous stage
+-- TODO: eliminate that assumtion
 toMachineInstr :: AsmInstr -> [MachineInstr]
-toMachineInstr (Mov (Stack n) (AsmLit x)) = [Addi R3 R0 x, Sw R3 sp n]
-toMachineInstr (Mov (Stack m) (Stack n)) = [Lw R3 sp n, Sw R3 sp m]
-toMachineInstr (Mov (Reg r) (Stack n)) = [Lw r sp n]
-toMachineInstr (Mov (Reg r) (AsmLit x)) = [Addi r R0 x]
-toMachineInstr (AsmUnary Complement (Stack n)) =
-  [Lw R3 sp n, Not R3 R3, Sw R3 sp n]
-toMachineInstr (AsmUnary Negate (Stack n)) =
-  [Lw R3 sp n, Sub R3 R0 R3, Sw R3 sp n]
-toMachineInstr (AsmUnary Complement (Reg r)) = [Not r r]
-toMachineInstr (AsmUnary Negate (Reg r)) = [Sub r R0 r]
-toMachineInstr (AllocateStack n) = [Addi sp sp n] -- n should be negative
-toMachineInstr Ret = [Addi sp bp 0, Pop bp, Pop R7]
-                       -- Jalr R0 R7 for non-main functions
-toMachineInstr _ = undefined -- TODO: implement the rest
+toMachineInstr instr = loads ++ operation ++ stores
+  where loads = case getSrcs instr of
+          [a, b] -> loada ++ loadb
+            where loada = case a of
+                    Reg R3 -> []
+                    Stack n -> [Lw R3 sp n]
+                    AsmLit n -> [Movi R3 n]
+                    _ -> error "invalid source"
+                  loadb = case b of
+                    Reg R4 -> []
+                    Stack n -> [Lw R4 sp n]
+                    AsmLit n -> [Movi R4 n]
+                    _ -> error "invalid source"
+          [a] -> case a of
+            Reg R3 -> []
+            Stack n -> [Lw R3 sp n]
+            AsmLit n -> [Movi R3 n]
+            _ -> error "invalid source"
+          _ -> []
+        operation = case instr of
+          Mov _ _ -> []
+          AsmUnary Complement _ _ -> [Not R3 R3]
+          AsmUnary Negate _ _ -> [Sub R3 R0 R3]
+          AsmBinary AddOp _ _ _ -> [Add R3 R3 R4]
+          AsmBinary SubOp _ _ _ -> [Sub R3 R3 R4]
+          AsmBinary MulOp _ _ _ -> [Call "mul"]
+          AsmBinary DivOp _ _ _ -> [Call "miv"]
+          AsmBinary ModOp _ _ _ -> [Call "mod"]
+          AllocateStack n -> [Addi sp sp n] -- n should be negative
+          Ret -> [Addi sp bp 0, Pop bp, Pop R7] -- (+ Jalr R0 R7)
+        stores = case getDst instr of
+          [a] -> case a of
+            Reg r -> []
+            Stack n -> [Sw R3 sp n]
+            _ -> error "invalid destination"
+          _ -> []
 
 progToMachine :: AsmProg -> [MachineInstr]
 progToMachine (AsmProg (AsmFunc name instrs)) =
@@ -76,6 +103,7 @@ progToMachine (AsmProg (AsmFunc name instrs)) =
 
 asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
+asmToStr (Call s) = "\tcall " ++ s
 asmToStr (Sys exc) = "\tsys " ++ (toUpper <$> show exc)
 asmToStr instr =
   '\t' : filter (\c -> c/= '(' && c /= ')') (toLower <$> show instr)
@@ -89,20 +117,20 @@ main = do
   args <- getArgs
   let path = head args
   content <- readFile path
-  putStrLn ("Input program:\n" ++ content)
+  --putStrLn ("Input program:\n" ++ content)
   let processed = preprocess content
-  putStrLn ("Preprocessed code:\n" ++ processed)
+  --putStrLn ("Preprocessed code:\n" ++ processed)
   let tokens = lexerEval processed
-  putStrLn ("\nTokens:\n" ++ showTokens tokens)
+  --putStrLn ("\nTokens:\n" ++ showTokens tokens)
   let ast = tokens >>= (runParser parseProgram . fst)
-  putStrLn ("\nSyntax tree:\n" ++ showAST ast)
+  --putStrLn ("\nSyntax tree:\n" ++ showAST ast)
   let tac = progToTAC . fst <$> ast
-  putStrLn ("\nTAC:\n" ++ showEither tac)
+  --putStrLn ("\nTAC:\n" ++ showEither tac)
   let asm = progToAsm <$> tac
-  putStrLn ("AsmAST:\n" ++ showEither asm)
+  --putStrLn ("AsmAST:\n" ++ showEither asm)
   let asm' = progToMachine <$> asm
-  let code = unlines <$> (fmap asmToStr <$> asm')
-  putStrLn ("Code:\n" ++ showEitherStr code)
+  let code = unlines . fmap asmToStr <$> asm'
+  --putStrLn ("Code:\n" ++ showEitherStr code)
   let fileName = head $ splitOn "." path
   let asmFile = fileName ++ ".s"
   writeEither asmFile code

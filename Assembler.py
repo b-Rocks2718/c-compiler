@@ -11,9 +11,9 @@ valid_commands = ["add", "addi", "addc", "sub",
                   "bp", "bo", "bn", "bc", 
                   "bnz", "movi", ".fill", ".space",
                   "jmp", "rfe", "rfi", "push", "pop", "clf",
-                  "kpsh", "kpop", "bnc"]
+                  "kpsh", "kpop", "bnc", "call"]
 
-macros = ["movi", ".fill", ".space", "push", "pop", "kpsh", "kpop"]
+macros = ["movi", ".fill", ".space", "push", "pop", "kpsh", "kpop", "call"]
 rri_type = ["addi", "sw", "lw"]
 rrr_type = ["add", "addc", "and", "or", "xor", "nand"]
 rr_type = ["not", "shl", "shr", "rotl",
@@ -156,6 +156,8 @@ def num_bytes(tokens, line):
             assert False, f"Invalid use of .space in line {line}; correct usage is\".space <num_words>\""
     elif tokens[0] in ["push", "pop", "kpsh", "kpop", "movi"]:
         return 2
+    elif tokens[0] == "call":
+        return 3
     else:
         return 1
 
@@ -278,9 +280,9 @@ def generate_opcode(line_num, tokens, labels, label_addresses, address):
             assert is_reg(tokens[1]), f"Error in line {line_num + 1}: Valid register names are r0, r1, ..., r7"
             assert is_reg(tokens[2]), f"Error in line {line_num + 1}: Valid register names are r0, r1, ..., r7"
             opcode += "000"
-            opcode += format(int(tokens[1][1]), 'b').zfill(3)
-            opcode += alu_dict["cmp"]
             opcode += format(int(tokens[2][1]), 'b').zfill(3)
+            opcode += alu_dict["cmp"]
+            opcode += format(int(tokens[1][1]), 'b').zfill(3)
         elif operation == "sub" or operation == "subc":
             assert len(tokens) == 4, f"Error in line {line_num + 1}: 'sub' takes 3 arguments"
             assert is_reg(tokens[1]), f"Error in line {line_num + 1}: Valid register names are r0, r1, ..., r7"
@@ -352,35 +354,52 @@ def generate_opcode(line_num, tokens, labels, label_addresses, address):
             opcode += hex(int(temp, 2))[2:].zfill(4) + '\n'
             opcode += hex(int("0010010010000001", 2))[2:].zfill(4) + '\n'
             return opcode
+        elif operation == "call":
+            assert len(tokens) == 2, f"Error in line {line_num + 1}: call takes one argument"
+            # convert to: 
+            # movi r7 <value>
+            # jalr r7 r7
+            opcode += "011"
+            opcode += "111"
+            opcode += get_imm(line_num, tokens[1], 10, 1, labels, label_addresses, is_movi=1)
+            opcode = hex(int(opcode, 2))[2:].zfill(4) + '\n'
+            
+            opcode2 = "001"
+            opcode2 += "111111"
+            opcode2 += ("0" + get_imm(line_num, tokens[1], 6, 0, labels, label_addresses, is_movi=1))
+            opcode2 = hex(int(opcode2, 2))[2:].zfill(4) + '\n'
+            
+            opcode3 = "1111111110000000"
+            opcode3 = hex(int(opcode3, 2))[2:].zfill(4) + '\n'
+            return opcode + opcode2 + opcode3
         else:
             raise BaseException(f"Macro '{operation}' has no definition")
     else:
         raise BaseException("you really messed up this time")
+    
     if opcode != "":
         opcode = hex(int(opcode, 2))[2:].zfill(4) + '\n'
     return opcode
 
-def assemble(name, tracked_labels):
+def assemble(names, tracked_labels):
     address = 0
-    input_file = open(name, 'r')
-    # TODO: write a linker
-    # compiling the whole OS every time is dumb
-    os_file = open("test_code/os.s", 'r')
-    os_code = os_file.readlines()
-    data = input_file.readlines()
-    os_file.close()
-    input_file.close()
-
-    # "link" files
-    data = os_code + ["\n"] + data
+    data = []
+    for name in names:
+        input_file = open(name, 'r')
+        data += input_file.readlines()
+        input_file.close()
     
     # first pass: convert labels to addresses
     labels = []
     label_addresses = []
     address = 0
+
+    # right now the assembler will only generate code that starts in kernel mode
+    # at some point I'll fix this
     os = False
     if "os = true" in data[0]:
         os = True
+
     for line_num, line in enumerate(data):
         line = line.replace("\n", "")
         line = line.replace("\t", " ")
@@ -434,7 +453,7 @@ def assemble(name, tracked_labels):
             if opcode != "":
                 file_lines.append(opcode)
 
-    f = open(f"{name.split('.')[0]}.out", 'w')
+    f = open(f"{names[0].split('.')[0]}.out", 'w')
     for line in file_lines:
         f.write(line)
     f.close()
@@ -461,20 +480,32 @@ def assemble(name, tracked_labels):
                 exc_binary.append(0)
         exc_rom.write(bytearray(exc_binary))
         exc_rom.close()
-        
-def assemble_to_binary(name, tracked_labels = []):
-    # generate machine code file
-    assemble(name, tracked_labels)
 
+# names[0] is main
+# names[1:] are libraries to include       
+def assemble_to_binary(names, tracked_labels = []):
+    # generate machine code file
+    assemble(names, tracked_labels)
+    assemble(["test_code/os.s"], tracked_labels)
     # make output filename from input
-    file_name = name.split('.')[0] + ".bin"
+    file_name = names[0].split('.')[0] + ".bin"
 
     # open file
-    input_file = open(name.split('.')[0] + ".out", 'r')
+    input_file = open(names[0].split('.')[0] + ".out", 'r')
+    os_file = open("test_code/os.out", 'r')
 
     f = open(file_name, 'wb')
 
     bytes_list = []
+
+    for line in os_file.readlines():
+        value = int(line, 16)
+        upper_byte = value & 0b1111_1111_0000_0000
+        upper_byte = upper_byte >> 8
+        lower_byte = value & 0b0000_0000_1111_1111
+        bytes_list.append(lower_byte)
+        bytes_list.append(upper_byte)
+
     for line in input_file.readlines():
         value = int(line, 16)
         upper_byte = value & 0b1111_1111_0000_0000
@@ -489,4 +520,4 @@ def assemble_to_binary(name, tracked_labels = []):
     f.close()
 
 if __name__ == "__main__":
-    assemble_to_binary(sys.argv[1])
+    assemble_to_binary(sys.argv[1:])

@@ -1,10 +1,11 @@
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 
 module Lexer where
 
 import Control.Applicative
-import Data.Char
-import Text.Regex.Posix
+import Data.Char ( isSpace )
+import Text.Regex.Posix ( (=~) )
 
 newtype Parser a b =
   Parser { runParser :: [a] -> Either String (b, [a]) }
@@ -42,6 +43,15 @@ instance Alternative (Parser a) where
   empty = Parser (\_ -> Left "")
   (Parser p1) <|> (Parser p2) = Parser (\s -> p1 s <|> p2 s)
 
+instance Monad (Parser a) where
+    return = pure
+
+    Parser p1 >>= k = Parser q
+      where
+        q inp = case p1 inp of
+          Left s -> Left s
+          Right (x, rest) -> runParser (k x) rest
+
 data Token = IntLit Int
            | Ident String
            | Void
@@ -60,7 +70,6 @@ data Token = IntLit Int
            | Slash
            | Percent
            | Minus
-           | None -- only used for error detection
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -81,11 +90,11 @@ lexConstToken :: Token -> String -> Parser Char Token
 lexConstToken t r = t <$ lexRegex r
 
 -- to ensure the entire file was lexed
-lexEOF :: Parser Char Token
+lexEOF :: Parser Char ()
 lexEOF = spaces *> Parser f
   where
     f s
-      | null s = Right (None, s)
+      | null s = Right ((), s)
       | otherwise = Left $ "Could not lex: " ++ head (lines s)
 
 -- hard to generalize because token values have different types
