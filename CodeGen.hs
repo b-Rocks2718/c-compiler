@@ -83,9 +83,14 @@ toMachineInstr instr = loads ++ operation ++ stores
           AsmUnary Negate _ _ -> [Sub R3 R0 R3]
           AsmBinary AddOp _ _ _ -> [Add R3 R3 R4]
           AsmBinary SubOp _ _ _ -> [Sub R3 R3 R4]
+          AsmBinary AndOp _ _ _ -> [And R3 R3 R4]
+          AsmBinary OrOp _ _ _ -> [Or R3 R3 R4]
+          AsmBinary XorOp _ _ _ -> [Xor R3 R3 R4]
           AsmBinary MulOp _ _ _ -> [Call "mul"]
           AsmBinary DivOp _ _ _ -> [Call "div"]
           AsmBinary ModOp _ _ _ -> [Call "mod"]
+          AsmBinary ShlOp _ _ _ -> [Call "left_shift"]
+          AsmBinary ShrOp _ _ _ -> [Call "right_shift"]
           AllocateStack n -> [Addi sp sp n] -- n should be negative
           Ret -> [Addi sp bp 0, Pop bp, Pop R7] -- (+ Jalr R0 R7)
         stores = case getDst instr of
@@ -117,20 +122,20 @@ main = do
   args <- getArgs
   let path = head args
   content <- readFile path
-  putStrLn ("Input program:\n" ++ content)
+  --putStrLn ("Input program:\n" ++ content)
   let processed = preprocess content
-  putStrLn ("Preprocessed code:\n" ++ processed)
+  --putStrLn ("Preprocessed code:\n" ++ processed)
   let tokens = lexerEval processed
-  putStrLn ("\nTokens:\n" ++ showTokens tokens)
+  --putStrLn ("\nTokens:\n" ++ showTokens tokens)
   let ast = tokens >>= (runParser parseProgram . fst)
-  putStrLn ("\nSyntax tree:\n" ++ showAST ast)
+  --putStrLn ("\nSyntax tree:\n" ++ showAST ast)
   let tac = progToTAC . fst <$> ast
-  putStrLn ("\nTAC:\n" ++ showEither tac)
+  --putStrLn ("\nTAC:\n" ++ showEither tac)
   let asm = progToAsm <$> tac
-  putStrLn ("AsmAST:\n" ++ showEither asm)
+  --putStrLn ("AsmAST:\n" ++ showEither asm)
   let asm' = progToMachine <$> asm
   let code = unlines . fmap asmToStr <$> asm'
-  putStrLn ("Code:\n" ++ showEitherStr code)
+  --putStrLn ("Code:\n" ++ showEitherStr code)
   let fileName = head $ splitOn "." path
   let asmFile = fileName ++ ".s"
   writeEither asmFile code

@@ -1,5 +1,5 @@
 
-# all of these can be more efficient using shifts
+# add, div, and mod can probably be more efficient using shifts
 # but im lazy and this works for now
 mul:
 	sw r5 r1 -1 # push registers
@@ -99,5 +99,45 @@ mod_end:
 mod_skip_negate:
 	lw r5 r1 -1 # pop registers
 	lw r6 r1 -2 
+	jalr r0 r7
+	
+	
+left_shift:
+	sw r5 r1 -1 # push registers
+	# check sign of r4
+	# if negative, do right shift instead
+	lui r5 0x8000
+	and r0 r5 r4
+	bz ls_loop
+	sub r4 r0 r4
+	jmp rs_loop
+ls_loop: # repeated shift
+	cmp r4 r0
+	bz ls_end
+	addi r4 r4 -1
+	shl r3 r3
+	jmp ls_loop
+ls_end:
+	lw r5 r1 -1 # pop registers
+	jalr r0 r7
+	
+	
+right_shift:
+	sw r5 r1 -1 # push registers
+	# check sign of r4
+	# if negative, do left shift instead
+	lui r5 0x8000
+	and r0 r5 r4
+	bz rs_loop
+	sub r4 r0 r4
+	jmp ls_loop
+rs_loop: # repeated shift
+	cmp r4 r0
+	bz rs_end
+	addi r4 r4 -1
+	shr r3 r3
+	jmp rs_loop
+rs_end:
+	lw r5 r1 -1 # pop registers
 	jalr r0 r7
 	

@@ -32,7 +32,8 @@ data UnaryOp = Complement
              | Negate
              deriving (Show)
 
-data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp
+data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
+             AndOp | OrOp  | XorOp | ShrOp | ShlOp
             deriving (Show)
 
 instance Show ASTProg where
@@ -75,17 +76,25 @@ isIntLit (IntLit _) = True
 isIntLit _ = False
 
 isUnaryOp :: Token -> Bool
-isUnaryOp Minus = True
-isUnaryOp Tilde = True
-isUnaryOp _ = False
+isUnaryOp op = case op of
+  Minus -> True
+  Tilde -> True
+  _ -> False
 
 isBinOp :: Token -> Bool
-isBinOp Minus = True
-isBinOp Plus = True
-isBinOp Asterisk = True
-isBinOp Slash = True
-isBinOp Percent = True
-isBinOp _ = False
+isBinOp op = 
+  case op of 
+    Minus -> True
+    Plus -> True
+    Asterisk -> True
+    Slash -> True
+    Percent -> True
+    Ampersand -> True
+    Pipe -> True
+    Carat -> True
+    ShiftLTok -> True
+    ShiftRTok -> True
+    _ -> False
 
 identName :: Token -> String
 identName (Ident s) = s
@@ -96,24 +105,37 @@ intLitVal (IntLit n) = n
 intLitVal x = error $ show x ++ " is not an int lit"
 
 getUnaryOp :: Token -> UnaryOp
-getUnaryOp Tilde = Complement
-getUnaryOp Minus = Negate
-getUnaryOp x = error $ show x ++ " is not an unary operator"
+getUnaryOp op = case op of 
+  Tilde -> Complement
+  Minus -> Negate
+  _ -> error $ show op ++ " is not an unary operator"
 
 getBinOp :: Token -> BinOp
-getBinOp Plus = AddOp
-getBinOp Minus = SubOp
-getBinOp Asterisk = MulOp
-getBinOp Slash = DivOp
-getBinOp Percent = ModOp
-getBinOp x = error $ show x ++ " is not a binary operator"
+getBinOp op = case op of
+  Plus -> AddOp
+  Minus -> SubOp
+  Asterisk -> MulOp
+  Slash -> DivOp
+  Percent -> ModOp
+  Ampersand -> AndOp
+  Pipe -> OrOp
+  Carat -> XorOp
+  ShiftLTok -> ShlOp
+  ShiftRTok -> ShrOp
+  _ -> error $ show op ++ " is not a binary operator"
 
 getPrec :: BinOp -> Int
-getPrec MulOp = 50
-getPrec DivOp = 50
-getPrec ModOp = 50
-getPrec AddOp = 45
-getPrec SubOp = 45
+getPrec op = case op of
+  MulOp -> 50
+  DivOp -> 50
+  ModOp -> 50
+  AddOp -> 45
+  SubOp -> 45
+  ShlOp -> 40
+  ShrOp -> 40
+  AndOp -> 25
+  XorOp -> 20
+  OrOp  -> 15
 
 parseProgram :: Parser Token ASTProg
 parseProgram = ASTProg <$> parseFunction <* parseEOF

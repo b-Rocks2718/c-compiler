@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
-{-# LANGUAGE InstanceSigs #-}
 
 module Lexer where
 
@@ -70,6 +69,11 @@ data Token = IntLit Int
            | Slash
            | Percent
            | Minus
+           | Ampersand
+           | Pipe
+           | Carat
+           | ShiftLTok
+           | ShiftRTok
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -121,6 +125,11 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken DecTok "^--" <|>
            lexConstToken Plus "^\\+" <|>
            lexConstToken Minus "^-" <|>
+           lexConstToken Ampersand "^&" <|>
+           lexConstToken Pipe "^\\|" <|>
+           lexConstToken Carat "^\\^" <|>
+           lexConstToken ShiftRTok "^>>" <|>
+           lexConstToken ShiftLTok "^<<" <|>
            lexIntLit <|>
            lexIdent
 
