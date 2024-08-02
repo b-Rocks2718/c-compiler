@@ -11,7 +11,8 @@ valid_commands = ["add", "addi", "addc", "sub",
                   "bp", "bo", "bn", "bc", 
                   "bnz", "movi", ".fill", ".space",
                   "jmp", "rfe", "rfi", "push", "pop", "clf",
-                  "kpsh", "kpop", "bnc", "call"]
+                  "kpsh", "kpop", "bnc", "call", 
+                  "bg", "bge", "bl", "ble"]
 
 macros = ["movi", ".fill", ".space", "push", "pop", "kpsh", "kpop", "call"]
 rri_type = ["addi", "sw", "lw"]
@@ -60,6 +61,10 @@ instruction_dict = {
     "beq" : "110",
     "jmp" : "110",
     "bnc" : "110",
+    "bg"  : "110",
+    "bge" : "110",
+    "bl"  : "110",
+    "ble" : "110",
     "clf" : "000",
 }
 
@@ -93,15 +98,20 @@ branch_dict = {
     "bnz" : "000101",
     "bne" : "000101",
     "jmp" : "000110",
-    "bnc" : "000111"
+    "bnc" : "000111",
+    "bg"  : "001000",
+    "bge" : "001001",
+    "bl"  : "001010",
+    "ble" : "001011"
 }
 
 exception_dict = { 
-    "WRITE_FRAME_BUFFER": "1110000",
-    "EXIT": "1110001",
-    "WRITE_TILE_DATA": "1110010",
+    "EXIT": "1110000",
+    # next exception will get code 1110001, then 1110010, ...
+
     "MODE_HALT": "0000010",
     "EXC_PRIV": "1010101",
+
     "INT0": "1100000",
     "INT1": "1100001",
     "INT2": "1100010",

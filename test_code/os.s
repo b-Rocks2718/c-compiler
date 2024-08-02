@@ -35,8 +35,6 @@ EXIT:
 	sys MODE_HALT
 
 # not worrying about these for now
-WRITE_FRAME_BUFFER:
-WRITE_TILE_DATA:
 INT0:
 INT1:
 INT2:

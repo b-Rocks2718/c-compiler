@@ -74,6 +74,15 @@ data Token = IntLit Int
            | Carat
            | ShiftLTok
            | ShiftRTok
+           | Exclamation
+           | DoubleAmpersand
+           | DoublePipe
+           | DoubleEquals
+           | NotEqual
+           | LessThan
+           | GreaterThan
+           | LessThanEq
+           | GreaterThanEq
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -108,6 +117,7 @@ lexIntLit = IntLit . read <$> lexRegex "^[0-9]+\\b"
 lexIdent :: Parser Char Token
 lexIdent = Ident <$> lexRegex "^[a-zA-Z_]\\w*\\b"
 
+-- remember: for tokens that start the same, put the longer one first
 lexToken :: Parser Char Token
 lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken ReturnTok "^return\\b" <|>
@@ -125,11 +135,20 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken DecTok "^--" <|>
            lexConstToken Plus "^\\+" <|>
            lexConstToken Minus "^-" <|>
+           lexConstToken DoubleAmpersand "^&&" <|>
+           lexConstToken DoublePipe "^\\|\\|" <|>
            lexConstToken Ampersand "^&" <|>
            lexConstToken Pipe "^\\|" <|>
            lexConstToken Carat "^\\^" <|>
            lexConstToken ShiftRTok "^>>" <|>
            lexConstToken ShiftLTok "^<<" <|>
+           lexConstToken NotEqual "^!=" <|>
+           lexConstToken DoubleEquals "^==" <|>
+           lexConstToken Exclamation "^!" <|>
+           lexConstToken GreaterThanEq "^>=" <|>
+           lexConstToken LessThanEq "^<=" <|>
+           lexConstToken GreaterThan "^>" <|>
+           lexConstToken LessThan "^<" <|>
            lexIntLit <|>
            lexIdent
 
@@ -145,6 +164,7 @@ lexer = many (spaces *> lexToken) <* lexEOF
 lexerEval :: String -> Either String ([Token], String)
 lexerEval = runParser lexer
 
+-- takes a regex to match comments and the string to process
 removeComments :: String -> String -> String
 removeComments regex s
   | match = preprocess (a ++ c)

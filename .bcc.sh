@@ -6,8 +6,11 @@ function bcc {
     # get rid of .c extension
     name=${file%.*}
     
+    # remove name so the other flags can be passed to the compiler
+    shift 1
+
     # run the compiler
-    runhaskell -i/home/b_rocks2718/c-compiler ~/c-compiler/CodeGen.hs ${file}
+    runhaskell -i/home/b_rocks2718/c-compiler ~/c-compiler/CodeGen.hs ${file} $@
 
     # run the assembler
     python3 ~/c-compiler/Assembler.py ${name}.s test_code/arithmetic.s
@@ -16,4 +19,5 @@ function bcc {
     # put 'source ~/c-compiler/.bcc.sh' in the .bashrc file
 
     # then 'bcc test.c' should compile test.c
+    cptowin
 }

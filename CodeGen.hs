@@ -4,6 +4,7 @@ module CodeGen where
 import System.Environment ( getArgs )
 import Data.List.Split ( splitOn )
 import Data.Char ( toLower, toUpper )
+import Control.Monad (when)
 
 import Lexer
 import Parser
@@ -44,6 +45,10 @@ data MachineInstr = Add  Reg Reg Reg
                   | Bnz  String -- branch if nonzero
                   | Jmp  String -- unconditional jump
                   | Bnc  String -- branch if not carry
+                  | Bg   String -- branch if greater
+                  | Bge  String -- branch if greater or equal
+                  | Bl   String -- branch if less
+                  | Ble  String -- branch if less or equal
                   | Clf -- clear flags
                   | Nop
                   | Sys Exception -- calls the OS
@@ -56,7 +61,7 @@ data Exception = Exit
 
 -- R3 and R4 are used as scratch registers
 -- this function assumes no other registers are used in previous stage
--- TODO: eliminate that assumtion
+-- TODO: eliminate that assumption
 toMachineInstr :: AsmInstr -> [MachineInstr]
 toMachineInstr instr = loads ++ operation ++ stores
   where loads = case getSrcs instr of
@@ -79,20 +84,32 @@ toMachineInstr instr = loads ++ operation ++ stores
           _ -> []
         operation = case instr of
           Mov _ _ -> []
+          AsmCmp _ _ -> [Cmp R3 R4]
           AsmUnary Complement _ _ -> [Not R3 R3]
           AsmUnary Negate _ _ -> [Sub R3 R0 R3]
           AsmBinary AddOp _ _ _ -> [Add R3 R3 R4]
           AsmBinary SubOp _ _ _ -> [Sub R3 R3 R4]
-          AsmBinary AndOp _ _ _ -> [And R3 R3 R4]
-          AsmBinary OrOp _ _ _ -> [Or R3 R3 R4]
-          AsmBinary XorOp _ _ _ -> [Xor R3 R3 R4]
+          AsmBinary BitAnd _ _ _ -> [And R3 R3 R4]
+          AsmBinary BitOr _ _ _ -> [Or R3 R3 R4]
+          AsmBinary BitXor _ _ _ -> [Xor R3 R3 R4]
           AsmBinary MulOp _ _ _ -> [Call "mul"]
           AsmBinary DivOp _ _ _ -> [Call "div"]
           AsmBinary ModOp _ _ _ -> [Call "mod"]
-          AsmBinary ShlOp _ _ _ -> [Call "left_shift"]
-          AsmBinary ShrOp _ _ _ -> [Call "right_shift"]
+          AsmBinary BitShl _ _ _ -> [Call "left_shift"]
+          AsmBinary BitShr _ _ _ -> [Call "right_shift"]
+          AsmJump s -> [Jmp s]
+          AsmCondJump CondE s -> [Bz s]
+          AsmCondJump CondNE s -> [Bnz s]
+          AsmCondJump CondG s -> [Bg s]
+          AsmCondJump CondGE s -> [Bge s]
+          AsmCondJump CondL s -> [Bl s]
+          AsmCondJump CondLE s -> [Ble s]
+          AsmLabel s -> [Label s]
           AllocateStack n -> [Addi sp sp n] -- n should be negative
-          Ret -> [Addi sp bp 0, Pop bp, Pop R7] -- (+ Jalr R0 R7)
+          Ret -> [Addi sp bp 0,  
+                  Lw bp sp (-2),
+                  Lw R7 sp (-1), 
+                  Addi sp sp 2] -- (+ Jalr R0 R7)
         stores = case getDst instr of
           [a] -> case a of
             Reg r -> []
@@ -102,7 +119,11 @@ toMachineInstr instr = loads ++ operation ++ stores
 
 progToMachine :: AsmProg -> [MachineInstr]
 progToMachine (AsmProg (AsmFunc name instrs)) =
-  [Label name, Push R7, Push bp, Addi bp sp 0] ++
+  [Label name, 
+  Sw R7 sp (-1), 
+  Sw bp sp (-2), 
+  Addi sp sp (-2), 
+  Addi bp sp 0] ++
   (instrs >>= toMachineInstr) ++
   [Sys Exit]
 
@@ -110,6 +131,18 @@ asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
 asmToStr (Call s) = "\tcall " ++ s
 asmToStr (Sys exc) = "\tsys " ++ (toUpper <$> show exc)
+asmToStr (Jmp s) = "\tjmp " ++ s
+asmToStr (Bz s) = "\tbz " ++ s
+asmToStr (Bp s) = "\tbp " ++ s
+asmToStr (Bn s) = "\tbn " ++ s
+asmToStr (Bc s) = "\tbc " ++ s
+asmToStr (Bo s) = "\tbo " ++ s
+asmToStr (Bnz s) = "\tbnz " ++ s
+asmToStr (Bnc s) = "\tbnc " ++ s
+asmToStr (Bg s) = "\tbg " ++ s
+asmToStr (Bge s) = "\tbge " ++ s
+asmToStr (Bl s) = "\tbl " ++ s
+asmToStr (Ble s) = "\tble " ++ s
 asmToStr instr =
   '\t' : filter (\c -> c/= '(' && c /= ')') (toLower <$> show instr)
 
@@ -121,21 +154,25 @@ main :: IO ()
 main = do
   args <- getArgs
   let path = head args
+  let flags = tail args
   content <- readFile path
-  --putStrLn ("Input program:\n" ++ content)
   let processed = preprocess content
-  --putStrLn ("Preprocessed code:\n" ++ processed)
   let tokens = lexerEval processed
-  --putStrLn ("\nTokens:\n" ++ showTokens tokens)
+  when ("--tokens" `elem` flags) $ do
+    putStrLn ("\nTokens:\n" ++ showTokens tokens)
   let ast = tokens >>= (runParser parseProgram . fst)
-  --putStrLn ("\nSyntax tree:\n" ++ showAST ast)
+  when ("--ast" `elem` flags) $ do
+    putStrLn ("\nSyntax tree:\n" ++ showAST ast)
   let tac = progToTAC . fst <$> ast
-  --putStrLn ("\nTAC:\n" ++ showEither tac)
+  when ("--tac" `elem` flags) $ do
+    putStrLn ("\nTAC:\n" ++ showEither tac)
   let asm = progToAsm <$> tac
-  --putStrLn ("AsmAST:\n" ++ showEither asm)
+  when ("--asm" `elem` flags) $ do
+    putStrLn ("AsmAST:\n" ++ showEither asm)
   let asm' = progToMachine <$> asm
   let code = unlines . fmap asmToStr <$> asm'
-  --putStrLn ("Code:\n" ++ showEitherStr code)
+  when ("--code" `elem` flags) $ do
+    putStrLn ("Code:\n" ++ showEitherStr code)
   let fileName = head $ splitOn "." path
   let asmFile = fileName ++ ".s"
   writeEither asmFile code

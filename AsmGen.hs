@@ -5,13 +5,20 @@ import Lexer
 import Parser
 import TAC
 
+-- not sure if any of this is really necessary
+-- consider going directly from TAC to code
+
 data AsmProg = AsmProg AsmFunc deriving (Show)
 data AsmFunc = AsmFunc String [AsmInstr]
 
 data AsmInstr = Mov Operand Operand
               | AsmUnary UnaryOp Operand Operand
               | AsmBinary BinOp Operand Operand Operand
+              | AsmCmp Operand Operand
               | AllocateStack Int -- sub r1 r1 n
+              | AsmJump String
+              | AsmCondJump Condition String
+              | AsmLabel String
               | Ret -- pop r3, jalr r0 r3
               deriving (Show)
 
@@ -61,10 +68,15 @@ exprToAsm :: TACInstr -> [AsmInstr]
 exprToAsm instr = 
   case instr of 
     (TACReturn val) -> [Mov (Reg R3) (tacValToAsm val), Ret]
+    (TACCopy dst src) -> [Mov (tacValToAsm dst) (tacValToAsm src)]
     (TACUnary op dst src) ->
       [AsmUnary op (tacValToAsm dst) (tacValToAsm src)]
     (TACBinary op dst src1 src2) -> 
       [AsmBinary op (tacValToAsm dst) (tacValToAsm src1) (tacValToAsm src2)]
+    (TACCondJump cond label) -> [AsmCondJump cond label]
+    (TACCmp val1 val2) -> [AsmCmp (tacValToAsm val1) (tacValToAsm val2)]
+    (TACJump label) -> [AsmJump label]
+    (TACLabel s) -> [AsmLabel s]
 
 createMaps :: [AsmInstr] -> ([(Operand, Operand)], Int)
 createMaps xs = foldr f ([], -1) (xs >>= getOps)
@@ -84,6 +96,7 @@ getSrcs x =
     Mov a b -> [b]
     AsmUnary _ a b -> [b]
     AsmBinary _ a b c -> [b, c]
+    AsmCmp a b -> [a, b]
     _ -> []
 
 getDst :: AsmInstr -> [Operand]
@@ -105,6 +118,7 @@ mapOps :: (Operand -> Operand) -> AsmInstr -> AsmInstr
 mapOps f (Mov a b) = Mov (f a) (f b)
 mapOps f (AsmUnary op a b) = AsmUnary op (f a) (f b)
 mapOps f (AsmBinary op a b c) = AsmBinary op (f a) (f b) (f c)
+mapOps f (AsmCmp a b) = AsmCmp (f a) (f b)
 mapOps f x = x
   
 tacValToAsm :: TACVal -> Operand

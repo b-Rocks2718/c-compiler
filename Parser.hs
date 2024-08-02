@@ -3,20 +3,6 @@ module Parser where
 
 import Lexer
 import Control.Applicative
-import Data.List ( foldl' )
-
-{-   Grammar:
-
-<program> ::= <function>
-<function> ::= "int" <identifier> "(" "void" ")" "{" <statement> "}"
-<statement> ::= "return" <exp> ";"
-<exp> ::= <factor> | <exp> <binop> <exp>
-<factor> ::= <int> | <unop> <factor> | "(" <exp> ")"
-<unop> ::= "-" | "~"
-<binop> ::= "-" | "+" | "*" | "/" | "%"
-<identifier> ::= ? An identifier token ?
-<int> ::= ? A constant token ?
--}
 
 -- AST data structure
 data ASTProg = ASTProg ASTFunc
@@ -30,10 +16,13 @@ data Factor = ASTLit Int
 
 data UnaryOp = Complement
              | Negate
+             | BoolNot
              deriving (Show)
 
 data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
-             AndOp | OrOp  | XorOp | ShrOp | ShlOp
+             BitAnd | BitOr  | BitXor | BitShr | BitShl |
+             BoolAnd | BoolOr | BoolEq | BoolNeq | 
+             BoolLe | BoolGe | BoolLeq | BoolGeq
             deriving (Show)
 
 instance Show ASTProg where
@@ -79,6 +68,7 @@ isUnaryOp :: Token -> Bool
 isUnaryOp op = case op of
   Minus -> True
   Tilde -> True
+  Exclamation -> True
   _ -> False
 
 isBinOp :: Token -> Bool
@@ -94,6 +84,14 @@ isBinOp op =
     Carat -> True
     ShiftLTok -> True
     ShiftRTok -> True
+    DoubleAmpersand -> True
+    DoublePipe -> True
+    DoubleEquals -> True
+    NotEqual -> True
+    GreaterThan -> True
+    LessThan -> True
+    GreaterThanEq -> True
+    LessThanEq -> True
     _ -> False
 
 identName :: Token -> String
@@ -108,6 +106,7 @@ getUnaryOp :: Token -> UnaryOp
 getUnaryOp op = case op of 
   Tilde -> Complement
   Minus -> Negate
+  Exclamation -> BoolNot
   _ -> error $ show op ++ " is not an unary operator"
 
 getBinOp :: Token -> BinOp
@@ -117,11 +116,19 @@ getBinOp op = case op of
   Asterisk -> MulOp
   Slash -> DivOp
   Percent -> ModOp
-  Ampersand -> AndOp
-  Pipe -> OrOp
-  Carat -> XorOp
-  ShiftLTok -> ShlOp
-  ShiftRTok -> ShrOp
+  Ampersand -> BitAnd
+  Pipe -> BitOr
+  Carat -> BitXor
+  ShiftLTok -> BitShl
+  ShiftRTok -> BitShr
+  DoubleAmpersand -> BoolAnd
+  DoublePipe -> BoolOr
+  DoubleEquals -> BoolEq
+  NotEqual -> BoolNeq
+  GreaterThan -> BoolGe
+  LessThan -> BoolLe
+  GreaterThanEq -> BoolGeq
+  LessThanEq -> BoolLeq
   _ -> error $ show op ++ " is not a binary operator"
 
 getPrec :: BinOp -> Int
@@ -131,11 +138,19 @@ getPrec op = case op of
   ModOp -> 50
   AddOp -> 45
   SubOp -> 45
-  ShlOp -> 40
-  ShrOp -> 40
-  AndOp -> 25
-  XorOp -> 20
-  OrOp  -> 15
+  BitShl -> 40
+  BitShr -> 40
+  BoolLe -> 35
+  BoolGe -> 35
+  BoolLeq -> 35
+  BoolGeq -> 35
+  BoolEq -> 30
+  BoolNeq -> 30
+  BitAnd -> 25
+  BitXor -> 20
+  BitOr  -> 15
+  BoolAnd -> 10
+  BoolOr -> 5
 
 parseProgram :: Parser Token ASTProg
 parseProgram = ASTProg <$> parseFunction <* parseEOF
