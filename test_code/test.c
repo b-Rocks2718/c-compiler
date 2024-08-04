@@ -2,9 +2,9 @@
 int main(void) {
   /* so is this
      return 27 */
-  int x = 7;
-  x = x + 1;
-  int y = 9;
-  x = x * y;
-  return x;
+  int x = 0;
+  int y = 1;
+  int z;
+  z = ++x + y++;
+  return x + z;
 }

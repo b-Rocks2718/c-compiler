@@ -51,6 +51,10 @@ resolveExpr maps expr = case expr of
     (Factor (ASTVar name)) -> 
       liftA2 ASTAssign (resolveExpr maps left) (resolveExpr maps right)
     _ -> Left "Semantics Error: Invalid lvalue"
+  ASTPostAssign left right -> case left of
+    (Factor (ASTVar name)) -> 
+      liftA2 ASTPostAssign (resolveExpr maps left) (resolveExpr maps right)
+    _ -> Left "Semantics Error: Invalid lvalue"
   ASTBinary op left right -> 
     liftA2 (ASTBinary op) (resolveExpr maps left) (resolveExpr maps right)
   Factor fctr -> Factor <$> resolveFactor maps fctr

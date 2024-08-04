@@ -164,3 +164,12 @@ exprToTAC name state expr =
       where rslt = exprToTAC name state right
             (src, n) = snd rslt
             dst = TACVar v
+    (ASTPostAssign (Factor (ASTVar v)) right) -> 
+      ([TACCopy oldVal dst] ++ 
+        fst rslt ++ 
+        [TACCopy dst src], (oldVal, n2))
+      where rslt = exprToTAC name state right
+            (src, n1) = snd rslt
+            (oldValName, n2) = makeTemp name n1
+            oldVal = TACVar oldValName
+            dst = TACVar v

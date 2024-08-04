@@ -7,17 +7,6 @@ import Text.Regex.Posix ( (=~) )
 newtype Parser a b =
   Parser { runParser :: [a] -> Either String (b, [a]) }
 
-satisfy :: Show a => (a -> Bool) -> Parser a a
-satisfy p = Parser f
-  where
-    f [] = Left "empty input"
-    f (x:xs)
-        | p x       = Right (x, xs)
-        | otherwise = Left $ "Syntax Error: " ++ show x ++ " failed satisfy"
-
-match :: (Show a, Eq a) => a -> Parser a a
-match c = satisfy (==c)
-
 first :: (a -> b) -> (a,c) -> (b,c)
 first f (x,y) = (f x, y)
 
@@ -52,6 +41,20 @@ instance Monad (Parser a) where
 maybeParse :: Parser a b -> Parser a (Maybe b)
 maybeParse p = pure <$> p <|> pure Nothing
 
+errorParse :: String -> Parser a b
+errorParse s = Parser $ const (Left s)
+
+satisfy :: Show a => (a -> Bool) -> Parser a a
+satisfy p = Parser f
+  where
+    f [] = Left "empty input"
+    f (x:xs)
+        | p x       = Right (x, xs)
+        | otherwise = Left $ "Syntax Error: " ++ show x ++ " failed satisfy"
+
+match :: (Show a, Eq a) => a -> Parser a a
+match c = satisfy (==c) 
+
 data Token = IntLit Int
            | Ident String
            | Void
@@ -85,6 +88,16 @@ data Token = IntLit Int
            | GreaterThan
            | LessThanEq
            | GreaterThanEq
+           | PlusEq
+           | MinusEq
+           | TimesEq
+           | DivEq
+           | ModEq
+           | AndEq
+           | OrEq
+           | XorEq
+           | ShlEq
+           | ShrEq
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -110,7 +123,7 @@ lexEOF = spaces *> Parser f
   where
     f s
       | null s = Right ((), s)
-      | otherwise = Left $ "Syntax Error: Could not lex: " ++ head (lines s)
+      | otherwise = Left $ "Syntax Error: Unrecognized token: " ++ [head s]
 
 -- hard to generalize because token values have different types
 lexIntLit :: Parser Char Token
@@ -131,17 +144,26 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken Semi "^;" <|>
            lexConstToken Tilde "^~" <|>
            lexConstToken IncTok "^\\+\\+" <|>
+           lexConstToken PlusEq "^\\+=" <|>
+           lexConstToken TimesEq "^\\*=" <|>
            lexConstToken Asterisk "^\\*" <|>
+           lexConstToken DivEq "^/=" <|>
            lexConstToken Slash "^/" <|>
            lexConstToken Percent "^\\%" <|>
            lexConstToken DecTok "^--" <|>
+           lexConstToken MinusEq "^-=" <|>
            lexConstToken Plus "^\\+" <|>
            lexConstToken Minus "^-" <|>
            lexConstToken DoubleAmpersand "^&&" <|>
            lexConstToken DoublePipe "^\\|\\|" <|>
+           lexConstToken AndEq "^&=" <|>
            lexConstToken Ampersand "^&" <|>
+           lexConstToken OrEq "^\\|=" <|>
            lexConstToken Pipe "^\\|" <|>
+           lexConstToken XorEq "^\\^=" <|>
            lexConstToken Carat "^\\^" <|>
+           lexConstToken ShrEq "^>>=" <|>
+           lexConstToken ShlEq "^<<=" <|>
            lexConstToken ShiftRTok "^>>" <|>
            lexConstToken ShiftLTok "^<<" <|>
            lexConstToken NotEqual "^!=" <|>
@@ -170,10 +192,10 @@ lexerEval = runParser lexer
 -- takes a regex to match comments and the string to process
 removeComments :: String -> String -> String
 removeComments regex s
-  | match = preprocess (a ++ c)
+  | commentMatch = preprocess (a ++ c)
   | otherwise = s
   where
-    match = (s =~ regex) :: Bool
+    commentMatch = (s =~ regex) :: Bool
     (a, b, c) = (s =~ regex) :: (String, String, String)
 
 -- regex library is in multiline mode

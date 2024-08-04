@@ -13,6 +13,7 @@ data ASTStmt = ASTReturn ASTExpr
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
              | ASTAssign ASTExpr ASTExpr
+             | ASTPostAssign ASTExpr ASTExpr
 data Factor = ASTLit Int
              | ASTUnary UnaryOp Factor
              | FactorExpr ASTExpr
@@ -29,7 +30,9 @@ data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
              BitAnd | BitOr  | BitXor | BitShr | BitShl |
              BoolAnd | BoolOr | BoolEq | BoolNeq | 
              BoolLe | BoolGe | BoolLeq | BoolGeq |
-             AssignOp
+             AssignOp | PlusEqOp | MinusEqOp | TimesEqOp |
+             DivEqOp | ModEqOp | AndEqOp | OrEqOp | XorEqOp |
+             ShlEqOp | ShrEqOp
             deriving (Show, Eq)
 
 instance Show ASTProg where
@@ -77,6 +80,7 @@ instance Show ASTExpr where
   show (ASTBinary op left right) =
     show op ++ "("  ++ show left ++ ", " ++ show right ++ ")"
   show (ASTAssign x y) = "Assign(" ++ show x ++ ", " ++ show y ++ ")"
+  show (ASTPostAssign x y) = "PostAssign(" ++ show x ++ ", " ++ show y ++ ")"
 
 instance Show Factor where
   show (ASTLit n) = "Constant(" ++ show n ++ ")"
@@ -121,6 +125,16 @@ isBinOp op =
     GreaterThanEq -> True
     LessThanEq -> True
     Equals -> True
+    PlusEq -> True
+    MinusEq -> True
+    TimesEq -> True
+    DivEq -> True
+    ModEq -> True
+    AndEq -> True
+    OrEq -> True
+    XorEq -> True
+    ShlEq -> True
+    ShrEq -> True
     _ -> False
 
 identName :: Token -> String
@@ -159,6 +173,16 @@ getBinOp op = case op of
   GreaterThanEq -> BoolGeq
   LessThanEq -> BoolLeq
   Equals -> AssignOp
+  PlusEq -> PlusEqOp
+  MinusEq -> MinusEqOp
+  TimesEq -> TimesEqOp
+  DivEq -> DivEqOp
+  ModEq -> ModEqOp
+  AndEq -> AndEqOp
+  OrEq -> OrEqOp
+  XorEq -> XorEqOp
+  ShlEq -> ShlEqOp
+  ShrEq -> ShrEqOp
   _ -> error $ show op ++ " is not a binary operator"
 
 getPrec :: BinOp -> Int
@@ -182,6 +206,16 @@ getPrec op = case op of
   BoolAnd -> 10
   BoolOr -> 5
   AssignOp -> 1
+  PlusEqOp -> 1
+  MinusEqOp -> 1
+  TimesEqOp -> 1
+  DivEqOp -> 1
+  ModEqOp -> 1
+  AndEqOp -> 1
+  OrEqOp -> 1
+  XorEqOp -> 1
+  ShlEqOp -> 1
+  ShrEqOp -> 1
 
 parseProgram :: Parser Token ASTProg
 parseProgram = ASTProg <$> parseFunction <* parseEOF
@@ -212,8 +246,21 @@ parseLit :: Parser Token Factor
 parseLit = ASTLit . intLitVal <$> satisfy isIntLit
 
 parseUnary :: Parser Token Factor
-parseUnary = ASTUnary . getUnaryOp <$> satisfy isUnaryOp <*>
-             parseFactor
+parseUnary = ASTUnary . getUnaryOp <$> satisfy isUnaryOp <*> parseFactor <|> 
+             parsePreIncDec
+             
+parsePreIncDec :: Parser Token Factor
+parsePreIncDec = do
+  op <- match IncTok <|> match DecTok
+  v <- parseVar
+  let binop = if op == IncTok then AddOp else SubOp
+  let rslt = ASTBinary binop (Factor v) (Factor $ ASTLit 1)
+  return (FactorExpr $ ASTAssign (Factor v) rslt)
+
+parseCompoundAssign :: Int -> BinOp -> ASTExpr -> Parser Token (Maybe ASTExpr)
+parseCompoundAssign nextPrec op left = do
+  right <- parseBin (Factor <$> parseFactor) nextPrec
+  return . Just $ ASTAssign left (ASTBinary op left right)
 
 -- adds next factor to binary expression
 -- needed to make operators left-associative
@@ -230,6 +277,16 @@ parseBinExpand parser minPrec =
         if op == AssignOp then do
           right <- parseBin (Factor <$> parseFactor) nextPrec
           return . Just $ ASTAssign left right
+        else if op == PlusEqOp then parseCompoundAssign nextPrec AddOp left
+        else if op == MinusEqOp then parseCompoundAssign nextPrec SubOp left
+        else if op == TimesEqOp then parseCompoundAssign nextPrec MulOp left
+        else if op == DivEqOp then parseCompoundAssign nextPrec DivOp left
+        else if op == ModEqOp then parseCompoundAssign nextPrec ModOp left
+        else if op == AndEqOp then parseCompoundAssign nextPrec BitAnd left
+        else if op == OrEqOp then parseCompoundAssign nextPrec BitOr left
+        else if op == XorEqOp then parseCompoundAssign nextPrec BitXor left
+        else if op == ShlEqOp then parseCompoundAssign nextPrec BitShl left
+        else if op == ShrEqOp then parseCompoundAssign nextPrec BitShr left
         else do
           right <- parseBin (Factor <$> parseFactor) (nextPrec + 1)
           return . Just $ ASTBinary op left right
@@ -250,10 +307,19 @@ parseFactor :: Parser Token Factor
 parseFactor = parseLit <|>
               parseUnary <|>
               parseParens <|>
+              parsePostIncDec <|>
               parseVar
 
 parseVar :: Parser Token Factor
 parseVar = ASTVar . identName <$> satisfy isIdent
+
+parsePostIncDec :: Parser Token Factor
+parsePostIncDec = do
+  v <- parseVar
+  op <- match IncTok <|> match DecTok
+  let binop = if op == IncTok then AddOp else SubOp
+  let rslt = ASTBinary binop (Factor v) (Factor $ ASTLit 1)
+  return (FactorExpr $ ASTPostAssign (Factor v) rslt)
 
 parseExpr :: Parser Token ASTExpr
 parseExpr = parseBin (Factor <$> parseFactor) 0
@@ -264,4 +330,4 @@ parseEOF = Parser f
   where
     f ts
       | null ts = Right ((), ts)
-      | otherwise = Left $ "Could not lex: " ++ show ts
+      | otherwise = Left $ "Syntax Error: Could not parse: " ++ show ts

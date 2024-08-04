@@ -68,17 +68,17 @@ toMachineInstr name instr = loads ++ operation ++ stores
           [a, b] -> loada ++ loadb
             where loada = case a of
                     Reg R3 -> []
-                    Stack n -> [Lw R3 sp n]
+                    Stack n -> [Lw R3 bp n]
                     AsmLit n -> [Movi R3 n]
                     _ -> error "invalid source"
                   loadb = case b of
                     Reg R4 -> []
-                    Stack n -> [Lw R4 sp n]
+                    Stack n -> [Lw R4 bp n]
                     AsmLit n -> [Movi R4 n]
                     _ -> error "invalid source"
           [a] -> case a of
             Reg R3 -> []
-            Stack n -> [Lw R3 sp n]
+            Stack n -> [Lw R3 bp n]
             AsmLit n -> [Movi R3 n]
             _ -> error "invalid source"
           _ -> []
@@ -106,28 +106,32 @@ toMachineInstr name instr = loads ++ operation ++ stores
           AsmCondJump CondLE s -> [Ble s]
           AsmLabel s -> [Label s]
           AllocateStack n -> [Addi sp sp n] -- n should be negative
-          Ret -> [Addi sp bp 0,  
-                  Lw bp sp (-2),
-                  Lw R7 sp (-1), 
-                  Addi sp sp 2] ++ 
-                  case name of 
-                    "main" -> [Sys Exit]
-                    _ -> [Jalr R0 R7]
+          Ret -> case name of 
+                  "main" -> [Sys Exit]
+                  _ -> [Addi sp bp 0,  
+                        Lw bp sp (-2),
+                        Lw R7 sp (-1), 
+                        Addi sp sp 2,
+                        Jalr R0 R7]
         stores = case getDst instr of
           [a] -> case a of
             Reg r -> []
-            Stack n -> [Sw R3 sp n]
+            Stack n -> [Sw R3 bp n]
             _ -> error "invalid destination"
           _ -> []
 
 progToMachine :: AsmProg -> [MachineInstr]
 progToMachine (AsmProg (AsmFunc name instrs)) =
-  [Label name, 
-  Sw R7 sp (-1), 
-  Sw bp sp (-2), 
-  Addi sp sp (-2), 
-  Addi bp sp 0] ++
-  (instrs >>= toMachineInstr name) 
+  case name of
+    "main" -> [Label name, 
+               Addi sp R0 0,
+               Addi bp R0 0]
+    _ -> [Label name, 
+          Sw R7 sp (-1), 
+          Sw bp sp (-2), 
+          Addi sp sp (-2), 
+          Addi bp sp 0] 
+  ++ (instrs >>= toMachineInstr name) 
 
 asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
