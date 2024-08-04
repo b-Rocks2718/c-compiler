@@ -1,5 +1,3 @@
-{-# LANGUAGE FlexibleContexts, FlexibleInstances #-}
-
 module Lexer where
 
 import Control.Applicative
@@ -15,7 +13,7 @@ satisfy p = Parser f
     f [] = Left "empty input"
     f (x:xs)
         | p x       = Right (x, xs)
-        | otherwise = Left $ show x ++ " failed satisfy"
+        | otherwise = Left $ "Syntax Error: " ++ show x ++ " failed satisfy"
 
 match :: (Show a, Eq a) => a -> Parser a a
 match c = satisfy (==c)
@@ -51,6 +49,9 @@ instance Monad (Parser a) where
           Left s -> Left s
           Right (x, rest) -> runParser (k x) rest
 
+maybeParse :: Parser a b -> Parser a (Maybe b)
+maybeParse p = pure <$> p <|> pure Nothing
+
 data Token = IntLit Int
            | Ident String
            | Void
@@ -78,6 +79,7 @@ data Token = IntLit Int
            | DoubleAmpersand
            | DoublePipe
            | DoubleEquals
+           | Equals
            | NotEqual
            | LessThan
            | GreaterThan
@@ -108,7 +110,7 @@ lexEOF = spaces *> Parser f
   where
     f s
       | null s = Right ((), s)
-      | otherwise = Left $ "Could not lex: " ++ head (lines s)
+      | otherwise = Left $ "Syntax Error: Could not lex: " ++ head (lines s)
 
 -- hard to generalize because token values have different types
 lexIntLit :: Parser Char Token
@@ -145,6 +147,7 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken NotEqual "^!=" <|>
            lexConstToken DoubleEquals "^==" <|>
            lexConstToken Exclamation "^!" <|>
+           lexConstToken Equals "^=" <|>
            lexConstToken GreaterThanEq "^>=" <|>
            lexConstToken LessThanEq "^<=" <|>
            lexConstToken GreaterThan "^>" <|>
@@ -185,10 +188,15 @@ preprocess = removeComments "/\\*([^*]|\\*+[^/])*\\*+/" .
              unwords . lines . removeComments "//.*$"
 
 -- useful for testing
-showEither :: (Show a, Show b) => Either a b -> String
-showEither (Left s) = show s
+-- print Eithers without 'Left'/'Right'
+showEither :: (Show a) => Either String a -> String
 showEither (Right s) = show s
+showEither (Left s) = s
 
 showEitherStr :: Either String String -> String
 showEitherStr (Left s) = s
 showEitherStr (Right s) = s
+
+showTokens :: Either String ([Token], String) -> String
+showTokens (Right (ts, s)) = show ts
+showTokens (Left s) = s

@@ -1,8 +1,9 @@
-
 module TAC where
 
 import Lexer
 import Parser
+import Semantics
+import Data.List ( foldl' )
 
 data TACProg  = TACProg TACFunc deriving (Show)
 data TACFunc  = TACFunc String [TACInstr]
@@ -24,6 +25,8 @@ data TACVal   = TACLit Int
 data Condition = CondE | CondNE | CondG | CondGE | CondL | CondLE 
   deriving(Show)
 
+type TACState = (TACVal, Int)
+
 instance Show TACFunc where
   show (TACFunc name instrs) =
     "TACFunc " ++ show name ++ ":\n" ++
@@ -32,35 +35,46 @@ instance Show TACFunc where
 progToTAC :: ASTProg -> TACProg
 progToTAC (ASTProg f) = TACProg $ funcToTAC f
 
+-- TODO: consider using State Monad
+-- initialize global counter here
 funcToTAC :: ASTFunc -> TACFunc
-funcToTAC (ASTFunc name body) = TACFunc name (stmtToTAC name body)
+funcToTAC (ASTFunc name body) = TACFunc name $ 
+  fst (foldl' (blockItemsToTAC name) ([], (TACLit 0, 0)) body) ++ [TACReturn (TACLit 0)]
 
-stmtToTAC :: String -> ASTStmt -> [TACInstr]
-stmtToTAC name (ASTReturn expr) = fst rslt ++ [TACReturn (snd rslt)]
-  where rslt = exprToTAC (name ++ ".tmp.0") expr
+addInstrs :: [TACInstr] -> ([TACInstr], TACState) -> ([TACInstr], TACState)
+addInstrs instrs (instrs', state) = (instrs ++ instrs', state)
+
+blockItemsToTAC :: String -> ([TACInstr], TACState) -> BlockItem -> ([TACInstr], TACState)
+blockItemsToTAC name (instrs, state) item = case item of
+  StmtBlock stmt -> addInstrs instrs (stmtToTAC name state stmt)
+  DclrBlock (ASTDclr varName mExpr) -> case mExpr of
+    Just expr -> addInstrs instrs $ exprToTAC name state 
+      (ASTAssign (Factor $ ASTVar varName) expr)
+    Nothing -> (instrs, state)
+
+stmtToTAC :: String -> TACState -> ASTStmt -> ([TACInstr], TACState)
+stmtToTAC name state@(val, n) stmt = case stmt of 
+  (ASTReturn expr) -> (instrs ++ [TACReturn rslt], (rslt, n'))
+    where (instrs, (rslt, n')) = exprToTAC name state expr
+  (ExprStmt expr) -> exprToTAC name state expr
+  NullStmt -> ([], (val, n))
 
 -- create a temporary variable name
-makeTemp :: String -> TACVal -> String
-makeTemp name rslt = 
-  case rslt of 
-    (TACVar srcName) -> 
-      init srcName ++ show (read [last srcName] + 1)
-    (TACLit n) -> 
-      name
+makeTemp :: String -> Int -> (String, Int)
+makeTemp name n = (name ++ ".tmp." ++ show n, n + 1)
 
--- name has a counter appended to ensure tmp variables are unique
--- function returns instructions and return value
-factorToTAC :: String -> Factor -> ([TACInstr], TACVal)
-factorToTAC name factor = 
+factorToTAC :: String -> TACState -> Factor -> ([TACInstr], TACState)
+factorToTAC name state@(val, n) factor = 
   case factor of 
-    (ASTLit n) -> ([], TACLit n)
+    (ASTLit m) -> ([], (TACLit m, n))
     (ASTUnary op expr) -> 
-      (fst rslt ++ [TACUnary op dst src], dst)
-      where rslt = factorToTAC name expr
-            src = snd rslt
-            dstName = makeTemp name src
+      (fst rslt ++ [TACUnary op dst src], (dst, n2))
+      where rslt = factorToTAC name state expr
+            (src, n1) = snd rslt
+            (dstName, n2) = makeTemp name n1
             dst = TACVar dstName
-    (FactorExpr e) -> exprToTAC name e
+    (FactorExpr e) -> exprToTAC name state e
+    (ASTVar v) -> ([], (TACVar v, n))
 
 relationToCond :: BinOp -> Condition
 relationToCond op = case op of
@@ -71,28 +85,25 @@ relationToCond op = case op of
   BoolLe -> CondL
   BoolLeq -> CondLE
 
-relationalToTAC :: String -> BinOp -> ASTExpr -> ASTExpr -> ([TACInstr], TACVal)
-relationalToTAC name op left right = 
+relationalToTAC :: String -> TACState -> BinOp -> ASTExpr -> ASTExpr -> ([TACInstr], TACState)
+relationalToTAC name state op left right = 
   ([TACCopy dst (TACLit 1)] ++ 
-  fst rslt1 ++ fst rslt2 ++
+  rslt1 ++ rslt2 ++
   [TACCmp src1 src2, 
   TACCondJump (relationToCond op) endStr,
   TACCopy dst (TACLit 0),
-  TACLabel endStr], dst)
-  where rslt1 = exprToTAC name left
-        src1 = snd rslt1
-        dstName1 = makeTemp name src1
-        rslt2 = exprToTAC dstName1 right
-        src2 = snd rslt2
-        dstName2 = makeTemp dstName1 src2
+  TACLabel endStr], (dst, n4 + 2))
+  where (rslt1, (src1, n1)) = exprToTAC name state left
+        (dstName1, n2) = makeTemp name n1
+        (rslt2, (src2, n3)) = exprToTAC name (src1, n2) right
+        (dstName2, n4) = makeTemp dstName1 n3
         dst = TACVar dstName2
-        n = show (read [last dstName2] :: Int)
-        endStr = "end." ++ n
+        endStr = "end." ++ show n4
 
-exprToTAC :: String -> ASTExpr -> ([TACInstr], TACVal)
-exprToTAC name expr =
+exprToTAC :: String -> TACState -> ASTExpr -> ([TACInstr], TACState)
+exprToTAC name state expr =
   case expr of
-    (Factor f) -> factorToTAC name f
+    (Factor f) -> factorToTAC name state f
     -- short-circuiting operators
     (ASTBinary BoolAnd left right) -> 
       ([TACCopy dst (TACLit 0)] ++ 
@@ -103,16 +114,15 @@ exprToTAC name expr =
       [TACCmp src2 (TACLit 0), 
       TACCondJump CondE endStr, 
       TACCopy dst (TACLit 1),
-      TACLabel endStr], dst)
-      where rslt1 = exprToTAC name left
-            src1 = snd rslt1
-            dstName1 = makeTemp name src1
-            rslt2 = exprToTAC dstName1 right
-            src2 = snd rslt2
-            dstName2 = makeTemp dstName1 src2
+      TACLabel endStr], (dst, n4 + 1))
+      where rslt1 = exprToTAC name state left
+            (src1, n1) = snd rslt1
+            (dstName1, n2) = makeTemp name n1
+            rslt2 = exprToTAC name (src1, n2) right
+            (src2, n3) = snd rslt2
+            (dstName2, n4) = makeTemp name n3
             dst = TACVar dstName2
-            n = show (read [last dstName2] :: Int)
-            endStr = "end." ++ n
+            endStr = "end." ++ show n4
     (ASTBinary BoolOr left right) ->
       ([TACCopy dst (TACLit 1)] ++ 
       fst rslt1 ++ 
@@ -122,31 +132,35 @@ exprToTAC name expr =
       [TACCmp src2 (TACLit 0), 
       TACCondJump CondNE endStr, 
       TACCopy dst (TACLit 0),
-      TACLabel endStr], dst)
-      where rslt1 = exprToTAC name left
-            src1 = snd rslt1
-            dstName1 = makeTemp name src1
-            rslt2 = exprToTAC dstName1 right
-            src2 = snd rslt2
-            dstName2 = makeTemp dstName1 src2
+      TACLabel endStr], (dst, n4 + 1))
+      where rslt1 = exprToTAC name state left
+            (src1, n1) = snd rslt1
+            (dstName1, n2) = makeTemp name n1
+            rslt2 = exprToTAC name (src1, n2) right
+            (src2, n3) = snd rslt2
+            (dstName2, n4) = makeTemp name n3
             dst = TACVar dstName2
-            n = show (read [last dstName2] :: Int)
-            endStr = "end." ++ n
+            endStr = "end." ++ show n4
     -- relational operators (probably should rewrite)
-    (ASTBinary BoolEq left right) -> relationalToTAC name BoolEq left right
-    (ASTBinary BoolNeq left right) -> relationalToTAC name BoolNeq left right
-    (ASTBinary BoolGe left right) -> relationalToTAC name BoolGe left right
-    (ASTBinary BoolGeq left right) -> relationalToTAC name BoolGeq left right
-    (ASTBinary BoolLe left right) -> relationalToTAC name BoolLe left right
-    (ASTBinary BoolLeq left right) -> relationalToTAC name BoolLeq left right
+    (ASTBinary BoolEq left right) -> relationalToTAC name state BoolEq left right
+    (ASTBinary BoolNeq left right) -> relationalToTAC name state BoolNeq left right
+    (ASTBinary BoolGe left right) -> relationalToTAC name state BoolGe left right
+    (ASTBinary BoolGeq left right) -> relationalToTAC name state BoolGeq left right
+    (ASTBinary BoolLe left right) -> relationalToTAC name state BoolLe left right
+    (ASTBinary BoolLeq left right) -> relationalToTAC name state BoolLeq left right
     -- arithmetic operators (single instruction)
     -- could move mul/div/mod from a function call to here
     (ASTBinary op left right) ->
-      (fst rslt1 ++ fst rslt2 ++ [TACBinary op dst src1 src2], dst)
-      where rslt1 = exprToTAC name left
-            src1 = snd rslt1
-            dstName1 = makeTemp name src1
-            rslt2 = exprToTAC dstName1 right
-            src2 = snd rslt2
-            dstName2 = makeTemp dstName1 src2
+      (fst rslt1 ++ fst rslt2 ++ [TACBinary op dst src1 src2], (dst, n4))
+      where rslt1 = exprToTAC name state left
+            (src1, n1) = snd rslt1
+            (dstName1, n2) = makeTemp name n1
+            rslt2 = exprToTAC name (src1, n2) right
+            (src2, n3) = snd rslt2
+            (dstName2, n4) = makeTemp name n3
             dst = TACVar dstName2 -- possible optimization: use dstName1
+    (ASTAssign (Factor (ASTVar v)) right) -> 
+      (fst rslt ++ [TACCopy dst src], (dst, n))
+      where rslt = exprToTAC name state right
+            (src, n) = snd rslt
+            dst = TACVar v

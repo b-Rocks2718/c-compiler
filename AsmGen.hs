@@ -1,12 +1,8 @@
-
 module AsmGen where
 
 import Lexer
 import Parser
 import TAC
-
--- not sure if any of this is really necessary
--- consider going directly from TAC to code
 
 data AsmProg = AsmProg AsmFunc deriving (Show)
 data AsmFunc = AsmFunc String [AsmInstr]

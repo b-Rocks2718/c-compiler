@@ -1,4 +1,3 @@
-
 module CodeGen where
 
 import System.Environment ( getArgs )
@@ -8,6 +7,7 @@ import Control.Monad (when)
 
 import Lexer
 import Parser
+import Semantics
 import TAC
 import AsmGen
 
@@ -62,8 +62,8 @@ data Exception = Exit
 -- R3 and R4 are used as scratch registers
 -- this function assumes no other registers are used in previous stage
 -- TODO: eliminate that assumption
-toMachineInstr :: AsmInstr -> [MachineInstr]
-toMachineInstr instr = loads ++ operation ++ stores
+toMachineInstr :: String -> AsmInstr -> [MachineInstr]
+toMachineInstr name instr = loads ++ operation ++ stores
   where loads = case getSrcs instr of
           [a, b] -> loada ++ loadb
             where loada = case a of
@@ -109,7 +109,10 @@ toMachineInstr instr = loads ++ operation ++ stores
           Ret -> [Addi sp bp 0,  
                   Lw bp sp (-2),
                   Lw R7 sp (-1), 
-                  Addi sp sp 2] -- (+ Jalr R0 R7)
+                  Addi sp sp 2] ++ 
+                  case name of 
+                    "main" -> [Sys Exit]
+                    _ -> [Jalr R0 R7]
         stores = case getDst instr of
           [a] -> case a of
             Reg r -> []
@@ -124,8 +127,7 @@ progToMachine (AsmProg (AsmFunc name instrs)) =
   Sw bp sp (-2), 
   Addi sp sp (-2), 
   Addi bp sp 0] ++
-  (instrs >>= toMachineInstr) ++
-  [Sys Exit]
+  (instrs >>= toMachineInstr name) 
 
 asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
@@ -150,6 +152,11 @@ writeEither :: String -> Either a String -> IO ()
 writeEither path (Right s) = writeFile path s
 writeEither _ (Left _) = return ()
 
+-- to display errors
+showLeft :: Either String a -> IO ()
+showLeft (Right _) = return ()
+showLeft (Left s) = putStrLn s
+
 main :: IO ()
 main = do
   args <- getArgs
@@ -162,8 +169,11 @@ main = do
     putStrLn ("\nTokens:\n" ++ showTokens tokens)
   let ast = tokens >>= (runParser parseProgram . fst)
   when ("--ast" `elem` flags) $ do
-    putStrLn ("\nSyntax tree:\n" ++ showAST ast)
-  let tac = progToTAC . fst <$> ast
+    putStrLn ("\nSyntax tree:\n" ++ showEither (fst <$> ast))
+  let resolved = ast >>= resolveProg . fst
+  when ("--semantics" `elem` flags) $ do
+    putStrLn ("\nResolved tree:\n" ++ showEither resolved)
+  let tac = progToTAC <$> resolved
   when ("--tac" `elem` flags) $ do
     putStrLn ("\nTAC:\n" ++ showEither tac)
   let asm = progToAsm <$> tac
@@ -173,6 +183,7 @@ main = do
   let code = unlines . fmap asmToStr <$> asm'
   when ("--code" `elem` flags) $ do
     putStrLn ("Code:\n" ++ showEitherStr code)
+  showLeft code
   let fileName = head $ splitOn "." path
   let asmFile = fileName ++ ".s"
   writeEither asmFile code

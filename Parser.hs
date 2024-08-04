@@ -1,4 +1,3 @@
-
 module Parser where
 
 import Lexer
@@ -6,13 +5,20 @@ import Control.Applicative
 
 -- AST data structure
 data ASTProg = ASTProg ASTFunc
-data ASTFunc = ASTFunc String ASTStmt
+data ASTFunc = ASTFunc String [BlockItem]
+data BlockItem = StmtBlock ASTStmt | DclrBlock ASTDclr 
 data ASTStmt = ASTReturn ASTExpr
+             | ExprStmt ASTExpr
+             | NullStmt
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
+             | ASTAssign ASTExpr ASTExpr
 data Factor = ASTLit Int
              | ASTUnary UnaryOp Factor
              | FactorExpr ASTExpr
+             | ASTVar String
+data ASTDclr = ASTDclr String (Maybe ASTExpr)
+  deriving (Show)
 
 data UnaryOp = Complement
              | Negate
@@ -22,39 +28,61 @@ data UnaryOp = Complement
 data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
              BitAnd | BitOr  | BitXor | BitShr | BitShl |
              BoolAnd | BoolOr | BoolEq | BoolNeq | 
-             BoolLe | BoolGe | BoolLeq | BoolGeq
-            deriving (Show)
+             BoolLe | BoolGe | BoolLeq | BoolGeq |
+             AssignOp
+            deriving (Show, Eq)
 
 instance Show ASTProg where
-  show (ASTProg f) = "Program(\n" ++ showFunc f 1 ++ "\n)"
+  show (ASTProg f) = "Program(\n" ++ showFunc 1 f ++ "\n)"
 
-showFunc :: ASTFunc -> Int -> String
-showFunc (ASTFunc name body) n =
+showFunc :: Int -> ASTFunc -> String
+showFunc n (ASTFunc name body) =
   tabs ++ "Function(\n" ++ tabs ++ "    name=\"" ++ name ++
-  "\",\n" ++ tabs ++ "    body=" ++ showStatement body (n + 1) ++
-  "\n" ++ tabs ++ ")"
+  "\",\n" ++ tabs ++ "    body=[\n" ++ 
+  unlines (showBlockItem (n + 2) <$> body) ++ 
+  tabs ++ "    ]\n" ++ tabs ++ ")" 
   where tabs = replicate (4 * n) ' '
 
 instance Show ASTFunc where
-  show = flip showFunc 0
+  show = showFunc 0
 
-showStatement :: ASTStmt -> Int -> String
-showStatement (ASTReturn expr) n =
-  "Return(\n" ++ tabs ++ "    " ++ show expr ++ "\n" ++ tabs ++ ")"
+instance Show BlockItem where
+  show = showBlockItem 1
+
+showBlockItem :: Int -> BlockItem -> String
+showBlockItem n (StmtBlock x) = showStatement n x ++ ","
+showBlockItem n (DclrBlock x) = showDeclaration n x ++ ","
+
+showDeclaration :: Int -> ASTDclr -> String
+showDeclaration n expr =
+  tabs ++ "Dclr(" ++ show expr ++ ")"
+  where tabs = replicate (4 * n) ' ' 
+
+showStatement :: Int -> ASTStmt -> String
+showStatement n (ASTReturn expr) =
+  tabs ++ "Return(" ++ show expr ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (ExprStmt expr) =
+  tabs ++ "ExprStmt(" ++ show expr ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n NullStmt =
+  tabs ++ "NullStmt"
   where tabs = replicate (4 * n) ' '
 
 instance Show ASTStmt where
-  show = flip showStatement 0
+  show = showStatement 0
 
 instance Show ASTExpr where
   show (Factor x) = show x
   show (ASTBinary op left right) =
     show op ++ "("  ++ show left ++ ", " ++ show right ++ ")"
+  show (ASTAssign x y) = "Assign(" ++ show x ++ ", " ++ show y ++ ")"
 
 instance Show Factor where
   show (ASTLit n) = "Constant(" ++ show n ++ ")"
   show (ASTUnary op expr) = show op ++ "(" ++ show expr ++ ")"
   show (FactorExpr expr) = show expr
+  show (ASTVar x) = "Var(" ++ show x ++ ")"
 
 isIdent :: Token -> Bool
 isIdent (Ident _) = True
@@ -92,6 +120,7 @@ isBinOp op =
     LessThan -> True
     GreaterThanEq -> True
     LessThanEq -> True
+    Equals -> True
     _ -> False
 
 identName :: Token -> String
@@ -129,6 +158,7 @@ getBinOp op = case op of
   LessThan -> BoolLe
   GreaterThanEq -> BoolGeq
   LessThanEq -> BoolLeq
+  Equals -> AssignOp
   _ -> error $ show op ++ " is not a binary operator"
 
 getPrec :: BinOp -> Int
@@ -151,6 +181,7 @@ getPrec op = case op of
   BitOr  -> 15
   BoolAnd -> 10
   BoolOr -> 5
+  AssignOp -> 1
 
 parseProgram :: Parser Token ASTProg
 parseProgram = ASTProg <$> parseFunction <* parseEOF
@@ -159,11 +190,23 @@ parseFunction :: Parser Token ASTFunc
 parseFunction = liftA2 ASTFunc
   (identName <$> (match IntTok *> satisfy isIdent <* match OpenP <*
                  optional (match Void) <* match CloseP <* match OpenB))
-  parseStatement <* match CloseB
+  (some parseBlockItem) <* match CloseB
 
-parseStatement :: Parser Token ASTStmt
-parseStatement =
-  ASTReturn <$> (match ReturnTok *> parseExpr <* match Semi)
+parseStmt :: Parser Token ASTStmt
+parseStmt = 
+  ASTReturn <$> (match ReturnTok *> parseExpr <* match Semi) <|>
+  ExprStmt <$> (parseExpr <* match Semi) <|>
+  NullStmt <$ match Semi
+
+parseDclr :: Parser Token ASTDclr
+parseDclr = liftA2 ASTDclr 
+  (identName <$> (match IntTok *> satisfy isIdent)) 
+  (maybeParse (match Equals *> parseExpr) <* match Semi)
+
+parseBlockItem :: Parser Token BlockItem
+parseBlockItem = 
+  StmtBlock <$> parseStmt <|>
+  DclrBlock <$> parseDclr
 
 parseLit :: Parser Token Factor
 parseLit = ASTLit . intLitVal <$> satisfy isIntLit
@@ -184,8 +227,12 @@ parseBinExpand parser minPrec =
     if nextPrec >= minPrec 
     then do 
         -- higher precedence: create new ASTExpr
-        right <- parseBin (Factor <$> parseFactor) (nextPrec + 1)
-        return . Just $ ASTBinary op left right
+        if op == AssignOp then do
+          right <- parseBin (Factor <$> parseFactor) nextPrec
+          return . Just $ ASTAssign left right
+        else do
+          right <- parseBin (Factor <$> parseFactor) (nextPrec + 1)
+          return . Just $ ASTBinary op left right
     else empty -- will just use left expr
 
 -- need monadic parsing to avoid left-recursion
@@ -202,7 +249,11 @@ parseParens = match OpenP *> (FactorExpr <$> parseExpr) <* match CloseP
 parseFactor :: Parser Token Factor
 parseFactor = parseLit <|>
               parseUnary <|>
-              parseParens
+              parseParens <|>
+              parseVar
+
+parseVar :: Parser Token Factor
+parseVar = ASTVar . identName <$> satisfy isIdent
 
 parseExpr :: Parser Token ASTExpr
 parseExpr = parseBin (Factor <$> parseFactor) 0
@@ -214,12 +265,3 @@ parseEOF = Parser f
     f ts
       | null ts = Right ((), ts)
       | otherwise = Left $ "Could not lex: " ++ show ts
-
--- print Eithers without 'Left'/'Right'
-showAST :: Either String (ASTProg, [Token]) -> String
-showAST (Right (p, ts)) = show p
-showAST (Left s) = s
-
-showTokens :: Either String ([Token], String) -> String
-showTokens (Right (ts, s)) = show ts
-showTokens (Left s) = s
