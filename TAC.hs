@@ -57,7 +57,46 @@ stmtToTAC name state@(val, n) stmt = case stmt of
   (ASTReturn expr) -> (instrs ++ [TACReturn rslt], (rslt, n'))
     where (instrs, (rslt, n')) = exprToTAC name state expr
   (ExprStmt expr) -> exprToTAC name state expr
+  (IfStmt condition left right) -> case right of
+    Just stmt -> ifElseToTAC name state condition left stmt
+    Nothing -> ifToTAC name state condition left
   NullStmt -> ([], (val, n))
+
+ifToTAC :: String -> TACState -> ASTExpr -> 
+    ASTStmt -> ([TACInstr], TACState)
+ifToTAC name state condition left = 
+  (rslt1 ++ 
+  [TACCmp src1 (TACLit 0),
+   TACCondJump CondE endStr] ++
+   rslt2 ++ 
+  [TACLabel endStr], (dst, n4 + 1))
+  where (rslt1, (src1, n1)) = exprToTAC name state condition
+        (dstName1, n2) = makeTemp name n1
+        (rslt2, (src2, n3)) = stmtToTAC name (src1, n2) left
+        (dstName2, n4) = makeTemp name n3
+        dst = TACVar dstName2
+        endStr = "end." ++ show n4
+
+ifElseToTAC :: String -> TACState -> ASTExpr -> 
+    ASTStmt -> ASTStmt -> ([TACInstr], TACState)
+ifElseToTAC name state condition left right = 
+  (rslt1 ++ 
+  [TACCmp src1 (TACLit 0),
+   TACCondJump CondE elseStr] ++
+   rslt2 ++
+   [TACJump endStr,
+   TACLabel elseStr] ++
+   rslt3 ++
+  [TACLabel endStr], (dst, n6 + 1))
+  where (rslt1, (src1, n1)) = exprToTAC name state condition
+        (dstName1, n2) = makeTemp name n1
+        (rslt2, (src2, n3)) = stmtToTAC name (src1, n2) left
+        (dstName2, n4) = makeTemp name n3
+        elseStr = "else." ++ show n4
+        (rslt3, (src3, n5)) = stmtToTAC name (src1, n4 + 1) right
+        (dstName3, n6) = makeTemp name n5
+        dst = TACVar dstName3
+        endStr = "end." ++ show n6
 
 -- create a temporary variable name
 makeTemp :: String -> Int -> (String, Int)
@@ -96,7 +135,7 @@ relationalToTAC name state op left right =
   where (rslt1, (src1, n1)) = exprToTAC name state left
         (dstName1, n2) = makeTemp name n1
         (rslt2, (src2, n3)) = exprToTAC name (src1, n2) right
-        (dstName2, n4) = makeTemp dstName1 n3
+        (dstName2, n4) = makeTemp name n3
         dst = TACVar dstName2
         endStr = "end." ++ show n4
 
@@ -173,3 +212,23 @@ exprToTAC name state expr =
             (oldValName, n2) = makeTemp name n1
             oldVal = TACVar oldValName
             dst = TACVar v
+    (Conditional condition left right) -> (
+      rslt1 ++ 
+      [TACCmp src1 (TACLit 0),
+       TACCondJump CondE elseStr] ++
+       rslt2 ++
+       [TACCopy dst src2,
+       TACJump endStr,
+       TACLabel elseStr] ++
+       rslt3 ++
+      [TACCopy dst src3,
+       TACLabel endStr], (dst, n6 + 1))
+      where (rslt1, (src1, n1)) = exprToTAC name state condition
+            (dstName1, n2) = makeTemp name n1
+            (rslt2, (src2, n3)) = exprToTAC name (src1, n2) left
+            (dstName2, n4) = makeTemp name n3
+            elseStr = "else." ++ show n4
+            (rslt3, (src3, n5)) = exprToTAC name (src1, n4 + 1) right
+            (dstName3, n6) = makeTemp name n5
+            dst = TACVar dstName3
+            endStr = "end." ++ show n6

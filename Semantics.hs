@@ -30,7 +30,19 @@ resolveStmt :: VarMap -> ASTStmt -> Either String ASTStmt
 resolveStmt maps stmt = case stmt of
     ASTReturn expr -> ASTReturn <$> resolveExpr maps expr
     ExprStmt expr -> ExprStmt <$> resolveExpr maps expr
+    IfStmt condition left right -> 
+      liftA3 IfStmt (resolveExpr maps condition)
+      (resolveStmt maps left)
+      (funnyFmap (resolveStmt maps) right)
     NullStmt -> pure NullStmt
+
+funnyFmap :: (a -> Either b c) -> Maybe a -> Either b (Maybe c)
+funnyFmap f x = 
+  case x of
+    Just x -> case f x of
+      Left s -> Left s
+      Right y -> Right (Just y)
+    Nothing -> pure Nothing
 
 resolveDclr :: VarMap -> Int -> ASTDclr -> (Either String ASTDclr, MapState)
 resolveDclr maps n dclr@(ASTDclr name expr) = 
@@ -38,11 +50,7 @@ resolveDclr maps n dclr@(ASTDclr name expr) =
     (Just _) -> (Left $ "Semantics Error: Multiple declarations for " ++ name, (maps, n))
     Nothing -> let newName = makeUnique name n
                    newMaps = (name, newName) : maps
-                   newExpr = case expr of -- funny fmap
-                        Just x -> case resolveExpr maps x of
-                          Left s -> Left s
-                          Right y -> Right (Just y)
-                        Nothing -> pure Nothing
+                   newExpr = funnyFmap (resolveExpr maps) expr
                in (ASTDclr newName <$> newExpr, ((name, newName) : maps, n + 1))
 
 resolveExpr :: VarMap -> ASTExpr -> Either String ASTExpr
@@ -58,6 +66,9 @@ resolveExpr maps expr = case expr of
   ASTBinary op left right -> 
     liftA2 (ASTBinary op) (resolveExpr maps left) (resolveExpr maps right)
   Factor fctr -> Factor <$> resolveFactor maps fctr
+  Conditional condition left right ->
+    liftA3 Conditional 
+    (resolveExpr maps condition) (resolveExpr maps left) (resolveExpr maps right)
 
 resolveFactor :: VarMap -> Factor -> Either String Factor
 resolveFactor maps fctr = case fctr of 

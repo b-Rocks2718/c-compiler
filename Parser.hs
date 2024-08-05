@@ -6,19 +6,21 @@ import Control.Applicative
 -- AST data structure
 data ASTProg = ASTProg ASTFunc
 data ASTFunc = ASTFunc String [BlockItem]
-data BlockItem = StmtBlock ASTStmt | DclrBlock ASTDclr 
+data BlockItem = StmtBlock ASTStmt | DclrBlock ASTDclr
 data ASTStmt = ASTReturn ASTExpr
              | ExprStmt ASTExpr
+             | IfStmt ASTExpr ASTStmt (Maybe ASTStmt) -- condition if else?
              | NullStmt
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
              | ASTAssign ASTExpr ASTExpr
              | ASTPostAssign ASTExpr ASTExpr
+             | Conditional ASTExpr ASTExpr ASTExpr
 data Factor = ASTLit Int
              | ASTUnary UnaryOp Factor
              | FactorExpr ASTExpr
              | ASTVar String
-data ASTDclr = ASTDclr String (Maybe ASTExpr)
+data ASTDclr = ASTDclr String (Maybe ASTExpr) -- initialization is optional
   deriving (Show)
 
 data UnaryOp = Complement
@@ -28,11 +30,11 @@ data UnaryOp = Complement
 
 data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
              BitAnd | BitOr  | BitXor | BitShr | BitShl |
-             BoolAnd | BoolOr | BoolEq | BoolNeq | 
+             BoolAnd | BoolOr | BoolEq | BoolNeq |
              BoolLe | BoolGe | BoolLeq | BoolGeq |
              AssignOp | PlusEqOp | MinusEqOp | TimesEqOp |
              DivEqOp | ModEqOp | AndEqOp | OrEqOp | XorEqOp |
-             ShlEqOp | ShrEqOp
+             ShlEqOp | ShrEqOp | TernaryOp
             deriving (Show, Eq)
 
 instance Show ASTProg where
@@ -41,9 +43,9 @@ instance Show ASTProg where
 showFunc :: Int -> ASTFunc -> String
 showFunc n (ASTFunc name body) =
   tabs ++ "Function(\n" ++ tabs ++ "    name=\"" ++ name ++
-  "\",\n" ++ tabs ++ "    body=[\n" ++ 
-  unlines (showBlockItem (n + 2) <$> body) ++ 
-  tabs ++ "    ]\n" ++ tabs ++ ")" 
+  "\",\n" ++ tabs ++ "    body=[\n" ++
+  unlines (showBlockItem (n + 2) <$> body) ++
+  tabs ++ "    ]\n" ++ tabs ++ ")"
   where tabs = replicate (4 * n) ' '
 
 instance Show ASTFunc where
@@ -59,7 +61,7 @@ showBlockItem n (DclrBlock x) = showDeclaration n x ++ ","
 showDeclaration :: Int -> ASTDclr -> String
 showDeclaration n expr =
   tabs ++ "Dclr(" ++ show expr ++ ")"
-  where tabs = replicate (4 * n) ' ' 
+  where tabs = replicate (4 * n) ' '
 
 showStatement :: Int -> ASTStmt -> String
 showStatement n (ASTReturn expr) =
@@ -67,6 +69,11 @@ showStatement n (ASTReturn expr) =
   where tabs = replicate (4 * n) ' '
 showStatement n (ExprStmt expr) =
   tabs ++ "ExprStmt(" ++ show expr ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (IfStmt expr stmt1 stmt2) =
+  tabs ++ "IfStmt(" ++ show expr ++ ",\n" ++
+    showStatement (n + 1) stmt1 ++
+    maybe ")" (\stmt -> ",\n" ++ showStatement (n + 1) stmt ++ ")") stmt2
   where tabs = replicate (4 * n) ' '
 showStatement n NullStmt =
   tabs ++ "NullStmt"
@@ -81,6 +88,8 @@ instance Show ASTExpr where
     show op ++ "("  ++ show left ++ ", " ++ show right ++ ")"
   show (ASTAssign x y) = "Assign(" ++ show x ++ ", " ++ show y ++ ")"
   show (ASTPostAssign x y) = "PostAssign(" ++ show x ++ ", " ++ show y ++ ")"
+  show (Conditional c x y) = 
+    "Conditional(" ++ show c ++ ", " ++ show x ++ ", " ++ show y ++ ")"
 
 instance Show Factor where
   show (ASTLit n) = "Constant(" ++ show n ++ ")"
@@ -104,8 +113,8 @@ isUnaryOp op = case op of
   _ -> False
 
 isBinOp :: Token -> Bool
-isBinOp op = 
-  case op of 
+isBinOp op =
+  case op of
     Minus -> True
     Plus -> True
     Asterisk -> True
@@ -135,6 +144,7 @@ isBinOp op =
     XorEq -> True
     ShlEq -> True
     ShrEq -> True
+    Question -> True -- close enough
     _ -> False
 
 identName :: Token -> String
@@ -146,7 +156,7 @@ intLitVal (IntLit n) = n
 intLitVal x = error $ show x ++ " is not an int lit"
 
 getUnaryOp :: Token -> UnaryOp
-getUnaryOp op = case op of 
+getUnaryOp op = case op of
   Tilde -> Complement
   Minus -> Negate
   Exclamation -> BoolNot
@@ -183,6 +193,7 @@ getBinOp op = case op of
   XorEq -> XorEqOp
   ShlEq -> ShlEqOp
   ShrEq -> ShrEqOp
+  Question -> TernaryOp
   _ -> error $ show op ++ " is not a binary operator"
 
 getPrec :: BinOp -> Int
@@ -202,9 +213,10 @@ getPrec op = case op of
   BoolNeq -> 30
   BitAnd -> 25
   BitXor -> 20
-  BitOr  -> 15
+  BitOr -> 15
   BoolAnd -> 10
   BoolOr -> 5
+  TernaryOp -> 3
   AssignOp -> 1
   PlusEqOp -> 1
   MinusEqOp -> 1
@@ -227,18 +239,21 @@ parseFunction = liftA2 ASTFunc
   (some parseBlockItem) <* match CloseB
 
 parseStmt :: Parser Token ASTStmt
-parseStmt = 
+parseStmt =
   ASTReturn <$> (match ReturnTok *> parseExpr <* match Semi) <|>
   ExprStmt <$> (parseExpr <* match Semi) <|>
+  liftA3 IfStmt 
+    (match IfTok *> match OpenP *> parseExpr <* match CloseP) 
+    parseStmt (maybeParse (match ElseTok *> parseStmt)) <|>
   NullStmt <$ match Semi
 
 parseDclr :: Parser Token ASTDclr
-parseDclr = liftA2 ASTDclr 
-  (identName <$> (match IntTok *> satisfy isIdent)) 
+parseDclr = liftA2 ASTDclr
+  (identName <$> (match IntTok *> satisfy isIdent))
   (maybeParse (match Equals *> parseExpr) <* match Semi)
 
 parseBlockItem :: Parser Token BlockItem
-parseBlockItem = 
+parseBlockItem =
   StmtBlock <$> parseStmt <|>
   DclrBlock <$> parseDclr
 
@@ -246,9 +261,9 @@ parseLit :: Parser Token Factor
 parseLit = ASTLit . intLitVal <$> satisfy isIntLit
 
 parseUnary :: Parser Token Factor
-parseUnary = ASTUnary . getUnaryOp <$> satisfy isUnaryOp <*> parseFactor <|> 
+parseUnary = ASTUnary . getUnaryOp <$> satisfy isUnaryOp <*> parseFactor <|>
              parsePreIncDec
-             
+
 parsePreIncDec :: Parser Token Factor
 parsePreIncDec = do
   op <- match IncTok <|> match DecTok
@@ -265,14 +280,14 @@ parseCompoundAssign nextPrec op left = do
 -- adds next factor to binary expression
 -- needed to make operators left-associative
 parseBinExpand :: Parser Token ASTExpr -> Int -> Parser Token (Maybe ASTExpr)
-parseBinExpand parser minPrec = 
+parseBinExpand parser minPrec =
   expanded <|> pure Nothing where
   expanded = do
     left <- parser
     op <- getBinOp <$> satisfy isBinOp
     let nextPrec = getPrec op
-    if nextPrec >= minPrec 
-    then do 
+    if nextPrec >= minPrec
+    then do
         -- higher precedence: create new ASTExpr
         if op == AssignOp then do
           right <- parseBin (Factor <$> parseFactor) nextPrec
@@ -287,6 +302,10 @@ parseBinExpand parser minPrec =
         else if op == XorEqOp then parseCompoundAssign nextPrec BitXor left
         else if op == ShlEqOp then parseCompoundAssign nextPrec BitShl left
         else if op == ShrEqOp then parseCompoundAssign nextPrec BitShr left
+        else if op == TernaryOp then do
+          middle <- parseExpr <* match Colon
+          right <- parseBin (Factor <$> parseFactor) nextPrec
+          return . Just $ Conditional left middle right
         else do
           right <- parseBin (Factor <$> parseFactor) (nextPrec + 1)
           return . Just $ ASTBinary op left right
@@ -294,7 +313,7 @@ parseBinExpand parser minPrec =
 
 -- need monadic parsing to avoid left-recursion
 parseBin :: Parser Token ASTExpr -> Int -> Parser Token ASTExpr
-parseBin parser minPrec = do 
+parseBin parser minPrec = do
   mEnd <- parseBinExpand parser minPrec
   case mEnd of
     Nothing -> parser

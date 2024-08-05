@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+
 module Lexer where
 
 import Control.Applicative
@@ -98,6 +100,10 @@ data Token = IntLit Int
            | XorEq
            | ShlEq
            | ShrEq
+           | IfTok
+           | ElseTok
+           | Question
+           | Colon
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -174,6 +180,10 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken LessThanEq "^<=" <|>
            lexConstToken GreaterThan "^>" <|>
            lexConstToken LessThan "^<" <|>
+           lexConstToken IfTok "^if" <|>
+           lexConstToken ElseTok "^else" <|>
+           lexConstToken Question "^\\?" <|>
+           lexConstToken Colon "^:" <|>
            lexIntLit <|>
            lexIdent
 
