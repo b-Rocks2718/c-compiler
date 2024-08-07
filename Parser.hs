@@ -7,10 +7,12 @@ import Control.Applicative
 data ASTProg = ASTProg ASTFunc
 data ASTFunc = ASTFunc String [BlockItem]
 data BlockItem = StmtBlock ASTStmt | DclrBlock ASTDclr
-data ASTStmt = ASTReturn ASTExpr
+data ASTStmt = RetStmt ASTExpr
              | ExprStmt ASTExpr
              | IfStmt ASTExpr ASTStmt (Maybe ASTStmt) -- condition if else?
              | NullStmt
+             | GoToStmt String
+             | LabeledStmt String ASTStmt
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
              | ASTAssign ASTExpr ASTExpr
@@ -64,7 +66,7 @@ showDeclaration n expr =
   where tabs = replicate (4 * n) ' '
 
 showStatement :: Int -> ASTStmt -> String
-showStatement n (ASTReturn expr) =
+showStatement n (RetStmt expr) =
   tabs ++ "Return(" ++ show expr ++ ")"
   where tabs = replicate (4 * n) ' '
 showStatement n (ExprStmt expr) =
@@ -77,6 +79,12 @@ showStatement n (IfStmt expr stmt1 stmt2) =
   where tabs = replicate (4 * n) ' '
 showStatement n NullStmt =
   tabs ++ "NullStmt"
+  where tabs = replicate (4 * n) ' '
+showStatement n (GoToStmt label) =
+  tabs ++ "GoToStmt " ++ label
+  where tabs = replicate (4 * n) ' '
+showStatement n (LabeledStmt label stmt) =
+  tabs ++ "LabeledStmt " ++ label ++ ":\n" ++ showStatement (n + 1) stmt
   where tabs = replicate (4 * n) ' '
 
 instance Show ASTStmt where
@@ -240,11 +248,13 @@ parseFunction = liftA2 ASTFunc
 
 parseStmt :: Parser Token ASTStmt
 parseStmt =
-  ASTReturn <$> (match ReturnTok *> parseExpr <* match Semi) <|>
+  RetStmt <$> (match ReturnTok *> parseExpr <* match Semi) <|>
   ExprStmt <$> (parseExpr <* match Semi) <|>
   liftA3 IfStmt 
     (match IfTok *> match OpenP *> parseExpr <* match CloseP) 
     parseStmt (maybeParse (match ElseTok *> parseStmt)) <|>
+  liftA2 LabeledStmt (identName <$> satisfy isIdent <* match Colon) parseStmt <|>
+  GoToStmt . identName <$> (match GoToTok *> satisfy isIdent <* match Semi) <|>
   NullStmt <$ match Semi
 
 parseDclr :: Parser Token ASTDclr

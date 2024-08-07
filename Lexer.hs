@@ -104,6 +104,7 @@ data Token = IntLit Int
            | ElseTok
            | Question
            | Colon
+           | GoToTok
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -184,6 +185,7 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken ElseTok "^else" <|>
            lexConstToken Question "^\\?" <|>
            lexConstToken Colon "^:" <|>
+           lexConstToken GoToTok "^goto" <|>
            lexIntLit <|>
            lexIdent
 
