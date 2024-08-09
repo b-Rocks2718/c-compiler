@@ -3,9 +3,9 @@ module Semantics where
 import Lexer
 import Parser
 import Control.Applicative
-import Data.List ( foldl' )
+import Data.List ( foldl', deleteBy )
 
-type VarMap = [(String, String)]
+type VarMap = [(String, (String, Bool))]
 type VarMapState = (VarMap, Int)
 type LabelMap = [(String, String)]
 
@@ -16,15 +16,14 @@ resolveProg :: ASTProg -> Either String ASTProg
 resolveProg (ASTProg p) = ASTProg <$> resolveFunc p
 
 resolveFunc :: ASTFunc -> Either String ASTFunc
-resolveFunc (ASTFunc name items) = do
-    resolvedVars <- fst (f items)
+resolveFunc (ASTFunc name block) = do
+    resolvedVars <- resolveBlock ([], 0) block
     maps <- createLabelMaps name resolvedVars
     resolvedLabels <- resolveLabels name maps resolvedVars
     pure $ ASTFunc name resolvedLabels
-  where f = foldl' resolveBlockItems (Right [], ([], 0))
 
-createLabelMaps :: String -> [BlockItem] -> Either String LabelMap
-createLabelMaps name = foldr (createLabelMap name) (pure [])
+createLabelMaps :: String -> Block -> Either String LabelMap
+createLabelMaps name (Block items) = foldr (createLabelMap name) (pure []) items
 
 createLabelMap :: String -> BlockItem -> Either String LabelMap -> Either String LabelMap
 createLabelMap name item eMaps =
@@ -43,12 +42,12 @@ createLabelMap name item eMaps =
           Nothing -> pure newMaps
       _ -> eMaps
 
-resolveLabels :: String -> LabelMap -> [BlockItem] -> Either String [BlockItem]
-resolveLabels name maps = foldr (f name maps) (pure [])
+resolveLabels :: String -> LabelMap -> Block -> Either String Block
+resolveLabels name maps (Block items) = foldr (f name maps) (pure $ Block []) items
   where f name maps item eItems = do
-          items <- eItems
+          (Block items) <- eItems
           case resolveBlockItemsLabels name maps item of
-            Right resolved -> return (resolved : items)
+            Right resolved -> return (Block $ resolved : items)
             Left s -> Left s
 
 resolveBlockItemsLabels :: String -> LabelMap -> BlockItem -> Either String BlockItem
@@ -77,24 +76,31 @@ resolveLabel name maps item =
           Nothing -> return (IfStmt expr resolved1 Nothing)
       _ -> return item
 
+resolveBlock :: VarMapState -> Block -> Either String Block
+resolveBlock state (Block items) = 
+  Block <$> fst (foldl' resolveBlockItems (Right [], state) items)
+
 resolveBlockItems :: (Either String [BlockItem], VarMapState) -> BlockItem ->
     (Either String [BlockItem], VarMapState)
 resolveBlockItems (instrs, (maps, n)) instr = case instr of
-  StmtBlock x -> let resolved = resolveStmt maps x
+  StmtBlock x -> let resolved = resolveStmt (maps, n) x
                  in (liftA2 append instrs (StmtBlock <$> resolved), (maps, n))
   DclrBlock x -> let (resolved, (newMaps, n')) = resolveDclr maps n x
                  in (liftA2 append instrs (DclrBlock <$> resolved), (newMaps, n'))
 
-resolveStmt :: VarMap -> ASTStmt -> Either String ASTStmt
-resolveStmt maps stmt = case stmt of
+resolveStmt :: VarMapState -> ASTStmt -> Either String ASTStmt
+resolveStmt (maps, n) stmt = case stmt of
   RetStmt expr -> RetStmt <$> resolveExpr maps expr
   ExprStmt expr -> ExprStmt <$> resolveExpr maps expr
   IfStmt condition left right ->
     liftA3 IfStmt (resolveExpr maps condition)
-    (resolveStmt maps left)
-    (funnyFmap (resolveStmt maps) right)
-  LabeledStmt label stmt -> LabeledStmt label <$> resolveStmt maps stmt
+    (resolveStmt (maps, n) left)
+    (funnyFmap (resolveStmt (maps, n)) right)
+  LabeledStmt label stmt -> LabeledStmt label <$> resolveStmt (maps, n) stmt
   GoToStmt label -> pure (GoToStmt label)
+  CompoundStmt block -> 
+    let newMaps = copyVarMap maps
+    in CompoundStmt <$> resolveBlock (newMaps, n) block
   NullStmt -> pure NullStmt
 
 funnyFmap :: (a -> Either b c) -> Maybe a -> Either b (Maybe c)
@@ -105,14 +111,29 @@ funnyFmap f x =
       Right y -> Right (Just y)
     Nothing -> pure Nothing
 
+replace :: Eq a => a -> b -> [(a, b)] -> [(a, b)]
+replace x y maps = 
+  case lookup x maps of
+    Just _ -> (x, y) : deleteBy (\(a, _) (a', _) -> a == a') (x, y) maps
+    Nothing -> (x, y) : maps
+
+copyVarMap :: VarMap -> VarMap
+copyVarMap = foldr (\(x, (y, _)) maps -> (x, (y, False)) : maps) []
+
 resolveDclr :: VarMap -> Int -> ASTDclr -> (Either String ASTDclr, VarMapState)
 resolveDclr maps n dclr@(ASTDclr name expr) =
   case lookup name maps of
-    (Just _) -> (Left $ "Semantics Error: Multiple declarations for " ++ name, (maps, n))
-    Nothing -> let newName = makeUnique name n
-                   newMaps = (name, newName) : maps
-                   newExpr = funnyFmap (resolveExpr maps) expr
-               in (ASTDclr newName <$> newExpr, (newMaps, n + 1))
+    (Just (_, True)) -> (Left $ "Semantics Error: Multiple declarations for " ++ name, (maps, n))
+    (Just (_, False)) -> 
+      let newName = makeUnique name n
+          newMaps = replace name (newName, True) maps
+          newExpr = funnyFmap (resolveExpr maps) expr
+      in (ASTDclr newName <$> newExpr, (newMaps, n + 1))
+    Nothing -> 
+      let newName = makeUnique name n
+          newMaps = (name, (newName, True)) : maps
+          newExpr = funnyFmap (resolveExpr maps) expr
+      in (ASTDclr newName <$> newExpr, (newMaps, n + 1))
 
 resolveExpr :: VarMap -> ASTExpr -> Either String ASTExpr
 resolveExpr maps expr = case expr of
@@ -137,7 +158,7 @@ resolveFactor maps fctr = case fctr of
   ASTUnary op fctr' -> ASTUnary op <$> resolveFactor maps fctr'
   FactorExpr expr -> FactorExpr <$> resolveExpr maps expr
   ASTVar name -> case lookup name maps of
-    Just newName -> Right (ASTVar newName)
+    Just (newName, _) -> Right (ASTVar newName)
     Nothing -> Left $ "Semantics Error: No declaration for " ++ name
 
 makeUnique :: String -> Int -> String

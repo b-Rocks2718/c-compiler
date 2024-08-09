@@ -4,7 +4,7 @@ import Lexer
 import Parser
 import TAC
 
-data AsmProg = AsmProg AsmFunc deriving (Show)
+newtype AsmProg = AsmProg AsmFunc deriving (Show)
 data AsmFunc = AsmFunc String [AsmInstr]
 
 data AsmInstr = Mov Operand Operand

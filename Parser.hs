@@ -2,17 +2,20 @@ module Parser where
 
 import Lexer
 import Control.Applicative
+import Data.List ( intercalate )
 
 -- AST data structure
-data ASTProg = ASTProg ASTFunc
-data ASTFunc = ASTFunc String [BlockItem]
+newtype ASTProg = ASTProg ASTFunc
+data ASTFunc = ASTFunc String Block
 data BlockItem = StmtBlock ASTStmt | DclrBlock ASTDclr
+newtype Block = Block [BlockItem]
 data ASTStmt = RetStmt ASTExpr
              | ExprStmt ASTExpr
              | IfStmt ASTExpr ASTStmt (Maybe ASTStmt) -- condition if else?
-             | NullStmt
              | GoToStmt String
              | LabeledStmt String ASTStmt
+             | CompoundStmt Block
+             | NullStmt
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
              | ASTAssign ASTExpr ASTExpr
@@ -43,7 +46,7 @@ instance Show ASTProg where
   show (ASTProg f) = "Program(\n" ++ showFunc 1 f ++ "\n)"
 
 showFunc :: Int -> ASTFunc -> String
-showFunc n (ASTFunc name body) =
+showFunc n (ASTFunc name (Block body)) =
   tabs ++ "Function(\n" ++ tabs ++ "    name=\"" ++ name ++
   "\",\n" ++ tabs ++ "    body=[\n" ++
   unlines (showBlockItem (n + 2) <$> body) ++
@@ -85,6 +88,9 @@ showStatement n (GoToStmt label) =
   where tabs = replicate (4 * n) ' '
 showStatement n (LabeledStmt label stmt) =
   tabs ++ "LabeledStmt " ++ label ++ ":\n" ++ showStatement (n + 1) stmt
+  where tabs = replicate (4 * n) ' '
+showStatement n (CompoundStmt (Block items)) =
+  tabs ++ "CompoundStmt:\n" ++ intercalate "\n" (showBlockItem (n + 1) <$> items)
   where tabs = replicate (4 * n) ' '
 
 instance Show ASTStmt where
@@ -243,8 +249,16 @@ parseProgram = ASTProg <$> parseFunction <* parseEOF
 parseFunction :: Parser Token ASTFunc
 parseFunction = liftA2 ASTFunc
   (identName <$> (match IntTok *> satisfy isIdent <* match OpenP <*
-                 optional (match Void) <* match CloseP <* match OpenB))
-  (some parseBlockItem) <* match CloseB
+                 optional (match Void) <* match CloseP))
+  parseBlock
+
+parseBlock :: Parser Token Block
+parseBlock = match OpenB *> (Block <$> some parseBlockItem) <* match CloseB
+
+parseBlockItem :: Parser Token BlockItem
+parseBlockItem =
+  StmtBlock <$> parseStmt <|>
+  DclrBlock <$> parseDclr
 
 parseStmt :: Parser Token ASTStmt
 parseStmt =
@@ -255,17 +269,13 @@ parseStmt =
     parseStmt (maybeParse (match ElseTok *> parseStmt)) <|>
   liftA2 LabeledStmt (identName <$> satisfy isIdent <* match Colon) parseStmt <|>
   GoToStmt . identName <$> (match GoToTok *> satisfy isIdent <* match Semi) <|>
+  CompoundStmt <$> parseBlock <|>
   NullStmt <$ match Semi
 
 parseDclr :: Parser Token ASTDclr
 parseDclr = liftA2 ASTDclr
   (identName <$> (match IntTok *> satisfy isIdent))
   (maybeParse (match Equals *> parseExpr) <* match Semi)
-
-parseBlockItem :: Parser Token BlockItem
-parseBlockItem =
-  StmtBlock <$> parseStmt <|>
-  DclrBlock <$> parseDclr
 
 parseLit :: Parser Token Factor
 parseLit = ASTLit . intLitVal <$> satisfy isIntLit

@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module TAC where
 
 import Lexer
@@ -6,7 +8,7 @@ import Semantics
 import Data.List ( foldl' )
 import Control.Monad.State
 
-data TACProg  = TACProg TACFunc deriving (Show)
+newtype TACProg  = TACProg TACFunc deriving (Show)
 data TACFunc  = TACFunc String [TACInstr]
 data TACInstr = TACReturn TACVal
               | TACUnary UnaryOp TACVal TACVal -- op dst src
@@ -39,19 +41,26 @@ progToTAC (ASTProg f) = TACProg $ funcToTAC f
 -- initialize global counter here
 funcToTAC :: ASTFunc -> TACFunc
 funcToTAC (ASTFunc name body) = TACFunc name $
-  fst (foldl' (blockItemsToTAC name) ([], (TACLit 0, 0)) body) ++ [TACReturn (TACLit 0)]
+  evalState (blockToTAC name body) (TACLit 0, 0) ++ [TACReturn (TACLit 0)]
 
-addInstrs :: [TACInstr] -> ([TACInstr], (TACVal, Int)) -> ([TACInstr], (TACVal, Int))
-addInstrs instrs (instrs', tacState) = (instrs ++ instrs', tacState)
+blockToTAC :: String -> Block -> TACState
+blockToTAC name (Block items) = do
+  n <- getN
+  foldl' (blockItemsToTAC name) (state $ const ([], (TACLit 0, n))) items
 
-blockItemsToTAC :: String -> ([TACInstr], (TACVal, Int)) ->
-    BlockItem -> ([TACInstr], (TACVal, Int))
-blockItemsToTAC name (instrs, tacState) item = case item of
-  StmtBlock stmt -> addInstrs instrs (runState (stmtToTAC name stmt) (TACLit 0, 0))
+blockItemsToTAC :: String -> TACState ->
+    BlockItem -> TACState
+blockItemsToTAC name state item = case item of
+  StmtBlock stmt -> do
+    instrs <- state
+    newInstrs <- stmtToTAC name stmt
+    return (instrs ++ newInstrs)
   DclrBlock (ASTDclr varName mExpr) -> case mExpr of
-    Just expr -> addInstrs instrs $ runState (exprToTAC name
-      (ASTAssign (Factor $ ASTVar varName) expr)) (TACLit 0, 0)
-    Nothing -> (instrs, tacState)
+    Just expr -> do
+      instrs <- state
+      newInstrs <- exprToTAC name (ASTAssign (Factor $ ASTVar varName) expr)
+      return (instrs ++ newInstrs)
+    Nothing -> state
 
 stmtToTAC :: String -> ASTStmt -> TACState
 stmtToTAC name stmt = case stmt of
@@ -63,10 +72,11 @@ stmtToTAC name stmt = case stmt of
   (IfStmt condition left right) -> case right of
     Just stmt -> ifElseToTAC name condition left stmt
     Nothing -> ifToTAC name condition left
-  (GoToStmt label) -> pure [TACJump label]
+  (GoToStmt label) -> return [TACJump label]
   (LabeledStmt label stmt) -> do
     instrs <- stmtToTAC name stmt
     return $ TACLabel label : instrs
+  (CompoundStmt block) -> blockToTAC name block
   NullStmt -> return []
 
 ifToTAC :: String -> ASTExpr ->

@@ -32,7 +32,7 @@ data MachineInstr = Add  Reg Reg Reg
                   | Shlc Reg Reg -- shift left w/ carry
                   | Cmp  Reg Reg -- compare
                   | Lui  Reg Int -- load upper immediate
-                  | Movi Reg Int
+                  | Movi Reg Imm
                   | Jalr Reg Reg -- jump and link register
                   | Push Reg
                   | Pop  Reg
@@ -55,6 +55,12 @@ data MachineInstr = Add  Reg Reg Reg
                   | Label String
                   deriving (Show)
 
+data Imm = ImmLit Int | ImmLabel String
+
+instance Show Imm where
+  show (ImmLit n) = show n
+  show (ImmLabel s) = s
+
 -- will add more exceptions as OS is developed
 data Exception = Exit
   deriving (Show)
@@ -69,17 +75,17 @@ toMachineInstr name instr = loads ++ operation ++ stores
             where loada = case a of
                     Reg R3 -> []
                     Stack n -> [Lw R3 bp n]
-                    AsmLit n -> [Movi R3 n]
+                    AsmLit n -> [Movi R3 (ImmLit n)]
                     _ -> error "invalid source"
                   loadb = case b of
                     Reg R4 -> []
                     Stack n -> [Lw R4 bp n]
-                    AsmLit n -> [Movi R4 n]
+                    AsmLit n -> [Movi R4 (ImmLit n)]
                     _ -> error "invalid source"
           [a] -> case a of
             Reg R3 -> []
             Stack n -> [Lw R3 bp n]
-            AsmLit n -> [Movi R3 n]
+            AsmLit n -> [Movi R3 (ImmLit n)]
             _ -> error "invalid source"
           _ -> []
         operation = case instr of
@@ -97,7 +103,7 @@ toMachineInstr name instr = loads ++ operation ++ stores
           AsmBinary ModOp _ _ _ -> [Call "mod"]
           AsmBinary BitShl _ _ _ -> [Call "left_shift"]
           AsmBinary BitShr _ _ _ -> [Call "right_shift"]
-          AsmJump s -> [Jmp s]
+          AsmJump s -> [Movi R3 (ImmLabel s), Jalr R0 R3] -- will optimize later
           AsmCondJump CondE s -> [Bz s]
           AsmCondJump CondNE s -> [Bnz s]
           AsmCondJump CondG s -> [Bg s]
