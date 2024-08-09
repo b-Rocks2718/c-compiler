@@ -4,7 +4,7 @@ module TAC where
 
 import Lexer
 import Parser
-import Semantics
+import Semantics hiding ( getN, putN )
 import Data.List ( foldl' )
 import Control.Monad.State
 
@@ -29,6 +29,24 @@ data Condition = CondE | CondNE | CondG | CondGE | CondL | CondLE
   deriving(Show)
 
 type TACState = State (TACVal, Int) [TACInstr]
+
+getVal :: MonadState (a, b) m => m a
+getVal = do
+  gets fst
+
+putVal :: MonadState (a, b) m => a -> m ()
+putVal val = do
+  (_, n) <- get
+  put (val, n)
+
+getN :: MonadState (a, b) m => m b
+getN = do
+  gets snd
+
+putN :: MonadState (a, b) m => b -> m ()
+putN n = do
+  (val, _) <- get
+  put (val, n)
 
 instance Show TACFunc where
   show (TACFunc name instrs) =
@@ -124,24 +142,6 @@ makeTemp name = do
   n <- getN
   putN (n + 1)
   return (TACVar $ name ++ ".tmp." ++ show n)
-
-getVal :: MonadState (a, b) m => m a
-getVal = do
-  gets fst
-
-putVal :: MonadState (a, b) m => a -> m ()
-putVal val = do
-  (_, n) <- get
-  put (val, n)
-
-getN :: MonadState (a, b) m => m b
-getN = do
-  gets snd
-
-putN :: MonadState (a, b) m => b -> m ()
-putN n = do
-  (val, _) <- get
-  put (val, n)
 
 factorToTAC :: String -> Factor -> TACState
 factorToTAC name factor =
