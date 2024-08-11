@@ -1,13 +1,16 @@
-// this is a comment
 int main(void) {
-  /* so is this
-     return 27 */
-  int x = 10;
-  int y = 0;
-  loop: if (x == 0)
-    goto done;
-  y += x;
-  x--;
-  goto loop;
-  done: return y;
+  int x = 121;
+  int max = x;
+  while (x != 1){
+    if (x % 2){
+      x = 3 * x + 1;
+    } else {
+      x = x / 2;
+    }
+
+    if (x > max){
+      max = x;
+    }
+  }
+  return max;
 }

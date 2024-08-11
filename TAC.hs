@@ -4,7 +4,7 @@ module TAC where
 
 import Lexer
 import Parser
-import Semantics hiding ( getN, putN )
+import Semantics
 import Data.List ( foldl' )
 import Control.Monad.State
 
@@ -30,24 +30,6 @@ data Condition = CondE | CondNE | CondG | CondGE | CondL | CondLE
 
 type TACState = State (TACVal, Int) [TACInstr]
 
-getVal :: MonadState (a, b) m => m a
-getVal = do
-  gets fst
-
-putVal :: MonadState (a, b) m => a -> m ()
-putVal val = do
-  (_, n) <- get
-  put (val, n)
-
-getN :: MonadState (a, b) m => m b
-getN = do
-  gets snd
-
-putN :: MonadState (a, b) m => b -> m ()
-putN n = do
-  (val, _) <- get
-  put (val, n)
-
 instance Show TACFunc where
   show (TACFunc name instrs) =
     "TACFunc " ++ show name ++ ":\n" ++
@@ -63,7 +45,7 @@ funcToTAC (ASTFunc name body) = TACFunc name $
 
 blockToTAC :: String -> Block -> TACState
 blockToTAC name (Block items) = do
-  n <- getN
+  n <- getSnd
   foldl' (blockItemsToTAC name) (state $ const ([], (TACLit 0, n))) items
 
 blockItemsToTAC :: String -> TACState ->
@@ -73,18 +55,21 @@ blockItemsToTAC name state item = case item of
     instrs <- state
     newInstrs <- stmtToTAC name stmt
     return (instrs ++ newInstrs)
-  DclrBlock (ASTDclr varName mExpr) -> case mExpr of
-    Just expr -> do
-      instrs <- state
-      newInstrs <- exprToTAC name (ASTAssign (Factor $ ASTVar varName) expr)
-      return (instrs ++ newInstrs)
-    Nothing -> state
+  DclrBlock dclr -> do
+    instrs <- state
+    newInstrs <- dclrToTAC name dclr
+    return (instrs ++ newInstrs)
+
+dclrToTAC :: String -> ASTDclr -> TACState
+dclrToTAC name (ASTDclr varName mExpr) = case mExpr of
+  Just expr -> exprToTAC name (ASTAssign (Factor $ ASTVar varName) expr)
+  Nothing -> pure []
 
 stmtToTAC :: String -> ASTStmt -> TACState
 stmtToTAC name stmt = case stmt of
   (RetStmt expr) -> do
     instrs <- exprToTAC name expr
-    dst <- getVal
+    dst <- getFst
     return (instrs ++ [TACReturn dst])
   (ExprStmt expr) -> exprToTAC name expr
   (IfStmt condition left right) -> case right of
@@ -95,16 +80,92 @@ stmtToTAC name stmt = case stmt of
     instrs <- stmtToTAC name stmt
     return $ TACLabel label : instrs
   (CompoundStmt block) -> blockToTAC name block
+  (BreakStmt mLabel) -> case mLabel of
+    Just label -> return [TACJump $ label ++ ".break"]
+    Nothing -> error "Critical Error"
+  (ContinueStmt mLabel) -> case mLabel of
+    Just label -> return [TACJump $ label ++ ".continue"]
+    Nothing -> error "Critical Error"
+  (DoWhileStmt body condition mLabel) -> doWhileToTAC name body condition mLabel
+  (WhileStmt condition body mLabel) -> whileToTAC name condition body mLabel
+  (ForStmt init condition end body mLabel) -> forToTAC name init condition end body mLabel
   NullStmt -> return []
+
+doWhileToTAC :: String -> ASTStmt -> ASTExpr -> Maybe String -> TACState
+doWhileToTAC name body condition mLabel = do
+  let label = case mLabel of
+        Just x -> x
+        Nothing -> error "semantic analysis? more like semantic analySUS"
+  bodyInstrs <- stmtToTAC name body
+  conditionInstrs <- exprToTAC name condition
+  rslt <- getFst
+  return ( [TACLabel $ label ++ ".start"] ++
+    bodyInstrs ++ 
+    [TACLabel $ label ++ ".continue"] ++
+    conditionInstrs ++
+    [TACCmp rslt (TACLit 0), 
+    TACCondJump CondNE $ label ++ ".start"] ++
+    [TACLabel $ label ++ ".break"])
+
+whileToTAC :: String -> ASTExpr -> ASTStmt -> Maybe String -> TACState
+whileToTAC name condition body mLabel = do
+  let label = case mLabel of
+        Just x -> x
+        Nothing -> error "semantic analysis? more like semantic analySUS"
+  bodyInstrs <- stmtToTAC name body
+  conditionInstrs <- exprToTAC name condition
+  rslt <- getFst
+  return ([TACLabel $ label ++ ".continue"] ++
+    conditionInstrs ++ 
+    [TACCmp rslt (TACLit 0),
+    TACCondJump CondE $ label ++ ".break"] ++
+    bodyInstrs ++
+    [TACJump $ label ++ ".continue"] ++
+    [TACLabel $ label ++ ".break"])
+
+forToTAC :: String -> ForInit -> Maybe ASTExpr -> Maybe ASTExpr -> 
+  ASTStmt -> Maybe String -> TACState
+forToTAC name init condition end body mLabel = do
+  let label = case mLabel of
+        Just x -> x
+        Nothing -> error "semantic analysis? more like semantic analySUS"
+  initInstrs <- initToTAC name init
+  bodyInstrs <- stmtToTAC name body
+  conditionInstrs <- case condition of 
+    Just c -> do
+      cExprInstrs <- exprToTAC name c
+      rslt <- getFst
+      return (cExprInstrs ++ 
+            [TACCmp rslt (TACLit 0),
+            TACCondJump CondE $ label ++ ".break"])
+    Nothing -> pure []
+  endInstrs <- case end of 
+    Just e -> exprToTAC name e
+    Nothing -> pure []
+  return (initInstrs ++
+    [TACLabel $ label ++ ".start"] ++
+    conditionInstrs ++
+    bodyInstrs ++ 
+    [TACLabel $ label ++ ".continue"] ++
+    endInstrs ++
+    [TACJump $ label ++ ".start"] ++
+    [TACLabel $ label ++ ".break"])
+
+initToTAC :: String -> ForInit -> TACState
+initToTAC name init = case init of
+  InitDclr d -> dclrToTAC name d
+  InitExpr e -> case e of
+    Just expr -> exprToTAC name expr
+    Nothing -> pure []
 
 ifToTAC :: String -> ASTExpr ->
     ASTStmt -> TACState
 ifToTAC name condition left = do
   rslt1 <- exprToTAC name condition
-  src1 <- getVal
+  src1 <- getFst
   rslt2 <- stmtToTAC name left
   dst <- makeTemp name
-  n <- getN
+  n <- getSnd
   let endStr = "end." ++ show n
   put (dst, n + 1)
   return (rslt1 ++
@@ -117,14 +178,14 @@ ifElseToTAC :: String -> ASTExpr ->
     ASTStmt -> ASTStmt -> TACState
 ifElseToTAC name condition left right = do
   rslt1 <- exprToTAC name condition
-  src1 <- getVal
+  src1 <- getFst
   rslt2 <- stmtToTAC name left
-  n <- getN
+  n <- getSnd
   let elseStr = "else." ++ show n
-  putN (n + 1)
+  putSnd (n + 1)
   rslt3 <- stmtToTAC name right
   dst <- makeTemp name
-  n' <- getN
+  n' <- getSnd
   let endStr = "end." ++ show n'
   put (dst, n' + 1)
   return (rslt1 ++
@@ -139,25 +200,25 @@ ifElseToTAC name condition left right = do
 -- create a temporary variable name
 makeTemp :: String -> State (TACVal, Int) TACVal
 makeTemp name = do
-  n <- getN
-  putN (n + 1)
+  n <- getSnd
+  putSnd (n + 1)
   return (TACVar $ name ++ ".tmp." ++ show n)
 
 factorToTAC :: String -> Factor -> TACState
 factorToTAC name factor =
   case factor of
     (ASTLit m) -> do
-      putVal (TACLit m)
+      putFst (TACLit m)
       return []
     (ASTUnary op expr) -> do
       rslt <- factorToTAC name expr
-      src <- getVal
+      src <- getFst
       dst <- makeTemp name
-      putVal dst
+      putFst dst
       return (rslt ++ [TACUnary op dst src])
     (FactorExpr e) -> exprToTAC name e
     (ASTVar v) -> do
-      putVal (TACVar v)
+      putFst (TACVar v)
       return []
 
 relationToCond :: BinOp -> Condition
@@ -172,11 +233,11 @@ relationToCond op = case op of
 relationalToTAC :: String -> BinOp -> ASTExpr -> ASTExpr -> TACState
 relationalToTAC name op left right = do
   rslt1 <- exprToTAC name left
-  src1 <- getVal
+  src1 <- getFst
   rslt2 <- exprToTAC name right
-  src2 <- getVal
+  src2 <- getFst
   dst <- makeTemp name
-  n <- getN
+  n <- getSnd
   let endStr = "end." ++ show n
   put (dst, n + 1)
   return ([TACCopy dst (TACLit 1)] ++
@@ -193,11 +254,11 @@ exprToTAC name expr =
     -- short-circuiting operators
     (ASTBinary BoolAnd left right) -> do
       rslt1 <- exprToTAC name left
-      src1 <- getVal
+      src1 <- getFst
       rslt2 <- exprToTAC name right
-      src2 <- getVal
+      src2 <- getFst
       dst <- makeTemp name
-      n <- getN
+      n <- getSnd
       let endStr = "end." ++ show n
       put (dst, n + 1)
       return ([TACCopy dst (TACLit 0)] ++
@@ -211,11 +272,11 @@ exprToTAC name expr =
         TACLabel endStr])
     (ASTBinary BoolOr left right) -> do
       rslt1 <- exprToTAC name left
-      src1 <- getVal
+      src1 <- getFst
       rslt2 <- exprToTAC name right
-      src2 <- getVal
+      src2 <- getFst
       dst <- makeTemp name
-      n <- getN
+      n <- getSnd
       let endStr = "end." ++ show n
       put (dst, n + 1)
       return ([TACCopy dst (TACLit 1)] ++
@@ -238,37 +299,36 @@ exprToTAC name expr =
     -- could move mul/div/mod from a function call to here
     (ASTBinary op left right) -> do
       rslt1 <- exprToTAC name left
-      src1 <- getVal
+      src1 <- getFst
       --dst1 <- makeTemp name
       rslt2 <- exprToTAC name right
-      src2 <- getVal
+      src2 <- getFst
       dst2 <- makeTemp name -- possible optimization: use dst1
-      putVal dst2
+      putFst dst2
       return (rslt1 ++ rslt2 ++ [TACBinary op dst2 src1 src2])
     (ASTAssign (Factor (ASTVar v)) right) -> do
       rslt <- exprToTAC name right
-      src <- getVal
+      src <- getFst
       let dst = TACVar v
-      putVal dst
+      putFst dst
       return (rslt ++ [TACCopy dst src])
     (ASTPostAssign (Factor (ASTVar v)) right) -> do
       rslt <- exprToTAC name right
-      src <- getVal
+      src <- getFst
       oldVal <- makeTemp name
       let dst = TACVar v
-      putVal oldVal
+      putFst oldVal
       return ([TACCopy oldVal dst] ++ rslt ++ [TACCopy dst src])
     (Conditional condition left right) -> do
       rslt1 <- exprToTAC name condition
-      src1 <- getVal
+      src1 <- getFst
       rslt2 <- exprToTAC name left
-      src2 <- getVal
-      n <- getN
+      (src2, n) <- get
       let elseStr = "else." ++ show n
       rslt3 <- exprToTAC name right
-      src3 <- getVal
+      src3 <- getFst
       dst <- makeTemp name
-      n' <- getN
+      n' <- getSnd
       let endStr = "end." ++ show n'
       put (dst, n' + 1)
       return (rslt1 ++

@@ -105,6 +105,11 @@ data Token = IntLit Int
            | Question
            | Colon
            | GoToTok
+           | DoTok
+           | WhileTok
+           | ForTok
+           | BreakTok
+           | ContinueTok
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -186,6 +191,11 @@ lexToken = lexConstToken Void "^void\\b" <|>
            lexConstToken Question "^\\?" <|>
            lexConstToken Colon "^:" <|>
            lexConstToken GoToTok "^goto" <|>
+           lexConstToken DoTok "^do" <|>
+           lexConstToken WhileTok "^while" <|>
+           lexConstToken ForTok "^for" <|>
+           lexConstToken BreakTok "^break" <|>
+           lexConstToken ContinueTok "^continue" <|>
            lexIntLit <|>
            lexIdent
 

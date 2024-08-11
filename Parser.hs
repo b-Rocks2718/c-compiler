@@ -2,6 +2,7 @@ module Parser where
 
 import Lexer
 import Control.Applicative
+import Control.Applicative.HT
 import Data.List ( intercalate )
 
 -- AST data structure
@@ -15,6 +16,11 @@ data ASTStmt = RetStmt ASTExpr
              | GoToStmt String
              | LabeledStmt String ASTStmt
              | CompoundStmt Block
+             | BreakStmt (Maybe String)
+             | ContinueStmt (Maybe String)
+             | WhileStmt ASTExpr ASTStmt (Maybe String)
+             | DoWhileStmt ASTStmt ASTExpr (Maybe String)
+             | ForStmt ForInit (Maybe ASTExpr) (Maybe ASTExpr) ASTStmt (Maybe String)
              | NullStmt
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
@@ -26,6 +32,8 @@ data Factor = ASTLit Int
              | FactorExpr ASTExpr
              | ASTVar String
 data ASTDclr = ASTDclr String (Maybe ASTExpr) -- initialization is optional
+  deriving (Show)
+data ForInit = InitDclr ASTDclr | InitExpr (Maybe ASTExpr)
   deriving (Show)
 
 data UnaryOp = Complement
@@ -78,7 +86,8 @@ showStatement n (ExprStmt expr) =
 showStatement n (IfStmt expr stmt1 stmt2) =
   tabs ++ "IfStmt(" ++ show expr ++ ",\n" ++
     showStatement (n + 1) stmt1 ++
-    maybe ")" (\stmt -> ",\n" ++ showStatement (n + 1) stmt ++ ")") stmt2
+    maybe "" (\stmt -> ",\n" ++ showStatement (n + 1) stmt) stmt2 ++
+    "\n" ++ tabs ++ ")"
   where tabs = replicate (4 * n) ' '
 showStatement n NullStmt =
   tabs ++ "NullStmt"
@@ -92,6 +101,33 @@ showStatement n (LabeledStmt label stmt) =
 showStatement n (CompoundStmt (Block items)) =
   tabs ++ "CompoundStmt:\n" ++ intercalate "\n" (showBlockItem (n + 1) <$> items)
   where tabs = replicate (4 * n) ' '
+showStatement n (BreakStmt label) =
+  tabs ++ "BreakStmt(" ++ show label ++")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (ContinueStmt label) =
+  tabs ++ "ContinueStmt(" ++ show label ++")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (WhileStmt condition body label) =
+  tabs ++ "WhileStmt(" ++ show condition ++ ",\n" ++
+  showStatement (n + 1) body ++ "\n" ++ tabs ++
+  "    " ++ show label ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (DoWhileStmt body condition label) =
+  tabs ++ "DoWhileStmt(\n" ++ showStatement (n + 1) body ++ ",\n" ++
+  tabs ++ "    " ++ show condition ++ ",\n" ++ tabs ++
+  "    " ++ show label ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (ForStmt init condition end body label) =
+  tabs ++ "ForStmt(" ++ show init ++ ",\n" ++ 
+  tabs ++ "    " ++ showMaybe condition ++ ",\n" ++ 
+  tabs ++ "    " ++ showMaybe end ++ ",\n" ++
+  showStatement (n + 1) body ++ "\n" ++ tabs ++
+  "    " ++ show label ++ ")"
+  where tabs = replicate (4 * n) ' '
+
+showMaybe :: Show a => Maybe a -> String
+showMaybe (Just x) = show x
+showMaybe Nothing = ""
 
 instance Show ASTStmt where
   show = showStatement 0
@@ -102,7 +138,7 @@ instance Show ASTExpr where
     show op ++ "("  ++ show left ++ ", " ++ show right ++ ")"
   show (ASTAssign x y) = "Assign(" ++ show x ++ ", " ++ show y ++ ")"
   show (ASTPostAssign x y) = "PostAssign(" ++ show x ++ ", " ++ show y ++ ")"
-  show (Conditional c x y) = 
+  show (Conditional c x y) =
     "Conditional(" ++ show c ++ ", " ++ show x ++ ", " ++ show y ++ ")"
 
 instance Show Factor where
@@ -264,13 +300,29 @@ parseStmt :: Parser Token ASTStmt
 parseStmt =
   RetStmt <$> (match ReturnTok *> parseExpr <* match Semi) <|>
   ExprStmt <$> (parseExpr <* match Semi) <|>
-  liftA3 IfStmt 
-    (match IfTok *> match OpenP *> parseExpr <* match CloseP) 
+  liftA3 IfStmt
+    (match IfTok *> match OpenP *> parseExpr <* match CloseP)
     parseStmt (maybeParse (match ElseTok *> parseStmt)) <|>
   liftA2 LabeledStmt (identName <$> satisfy isIdent <* match Colon) parseStmt <|>
   GoToStmt . identName <$> (match GoToTok *> satisfy isIdent <* match Semi) <|>
   CompoundStmt <$> parseBlock <|>
+  BreakStmt Nothing <$ (match BreakTok <* match Semi) <|>
+  ContinueStmt Nothing <$ (match ContinueTok <* match Semi) <|>
+  match WhileTok *> liftA3 WhileStmt (match OpenP *> parseExpr <* match CloseP) 
+    parseStmt (pure Nothing) <|>
+  match DoTok *> liftA3 DoWhileStmt parseStmt 
+    (match WhileTok *> match OpenP *> parseExpr <* match CloseP <* match Semi) (pure Nothing) <|>
+  match ForTok *> lift5 ForStmt 
+    (match OpenP *> parseForInit) 
+    (optional parseExpr <* match Semi) 
+    (optional parseExpr <* match CloseP)
+    parseStmt (pure Nothing) <|>
   NullStmt <$ match Semi
+
+parseForInit :: Parser Token ForInit
+parseForInit = 
+  InitDclr <$> parseDclr <|>
+  InitExpr <$> optional parseExpr <* match Semi
 
 parseDclr :: Parser Token ASTDclr
 parseDclr = liftA2 ASTDclr

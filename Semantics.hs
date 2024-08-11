@@ -5,32 +5,34 @@ import Parser
 import Control.Applicative
 import Data.List ( foldl', deleteBy )
 import Control.Monad.State
+import Control.Applicative.HT (lift5)
 
 type VarMap = [(String, (String, Bool))]
 type VarMapState = State (VarMap, Int)
 type LabelMap = [(String, String)]
 
-getMaps :: MonadState (a, b) m => m a
-getMaps = do
+getFst :: MonadState (a, b) m => m a
+getFst = do
   gets fst
 
-putMaps :: MonadState (a, b) m => a -> m ()
-putMaps maps = do
+putFst :: MonadState (a, b) m => a -> m ()
+putFst maps = do
   (_, n) <- get
   put (maps, n)
 
-getN :: MonadState (a, b) m => m b
-getN = do
+getSnd :: MonadState (a, b) m => m b
+getSnd = do
   gets snd
 
-putN :: MonadState (a, b) m => b -> m ()
-putN n = do
+putSnd :: MonadState (a, b) m => b -> m ()
+putSnd n = do
   (val, _) <- get
   put (val, n)
 
 append :: [a] -> a -> [a]
 append xs x = xs ++ [x]
 
+-- there's probably a better name for this function
 funnyFmap :: (Monad m, Applicative f) => (t -> m (f a)) -> Maybe t -> m (f (Maybe a))
 funnyFmap f mX =
   case mX of
@@ -47,7 +49,10 @@ resolveFunc (ASTFunc name block) = do
     resolvedVars <- evalState (resolveBlock block) ([], 0)
     maps <- createLabelMaps name resolvedVars
     resolvedLabels <- resolveLabels name maps resolvedVars
-    pure $ ASTFunc name resolvedLabels
+    labeledLoops <- evalState (labelBlock resolvedLabels) (Nothing, 0)
+    pure $ ASTFunc name labeledLoops
+
+-------------- Dealing with labels and goto statements ----------------
 
 createLabelMaps :: String -> Block -> Either String LabelMap
 createLabelMaps name (Block items) = foldr (createLabelMap name) (pure []) items
@@ -103,6 +108,72 @@ resolveLabel name maps item =
           Nothing -> return (IfStmt expr resolved1 Nothing)
       _ -> return item
 
+-------------------- Loop Labeling -----------------------------------
+
+labelStmt :: ASTStmt -> State (Maybe String, Int) (Either String ASTStmt)
+labelStmt stmt = case stmt of
+  BreakStmt _ -> do
+    mLabel <- getFst
+    case mLabel of
+      Nothing -> return (Left "Semantics Error: Break statement outside loop")
+      Just label -> return (Right $ BreakStmt mLabel)
+  ContinueStmt _ -> do
+    mLabel <- getFst
+    case mLabel of
+      Nothing -> return (Left "Semantics Error: Continue statement outside loop")
+      Just label -> return (Right $ ContinueStmt mLabel)
+  WhileStmt condition body _ -> do
+    label <- makeUnique "while"
+    oldLabel <- getFst
+    putFst (Just label)
+    labeledBody <- labelStmt body
+    putFst oldLabel
+    return (liftA3 WhileStmt (pure condition) labeledBody (pure . Just $ label))
+  DoWhileStmt body condition _ -> do
+    label <- makeUnique "doWhile"
+    oldLabel <- getFst
+    putFst (Just label)
+    labeledBody <- labelStmt body
+    putFst oldLabel
+    return (liftA3 DoWhileStmt labeledBody (pure condition) (pure . Just $ label))
+  ForStmt init condition end body _ -> do
+    label <- makeUnique "for"
+    oldLabel <- getFst
+    putFst (Just label)
+    labeledBody <- labelStmt body
+    putFst oldLabel
+    return (lift5 ForStmt (pure init) (pure condition) (pure end)
+      labeledBody (pure . Just $ label))
+  IfStmt condition left right -> do
+    labeledLeft <- labelStmt left
+    labeledRight <- funnyFmap labelStmt right
+    return (liftA3 IfStmt (pure condition) labeledLeft labeledRight)
+  CompoundStmt block -> do
+    labeledBlock <- labelBlock block
+    return (CompoundStmt <$> labeledBlock)
+  LabeledStmt s stmt -> do
+    labeledStmt <- labelStmt stmt
+    return (LabeledStmt s <$> labeledStmt)
+  stmt -> return (pure stmt)
+
+labelBlockItem :: BlockItem -> State (Maybe String, Int) (Either String BlockItem)
+labelBlockItem item = case item of
+  StmtBlock stmt -> do
+    rslt <-labelStmt stmt
+    return (StmtBlock <$> rslt)
+  DclrBlock dclr -> return (pure $ DclrBlock dclr)
+
+labelBlock :: Block -> State (Maybe String, Int) (Either String Block)
+labelBlock (Block items) =  do
+    -- BlockItem ->
+    --  State (Maybe String, Int) (Either String [BlockItem]) ->
+    --  State (Maybe String, Int) (Either String [BlockItem])
+    labeledItems <- foldr (liftA2 (liftA2 (:)) . labelBlockItem) 
+      (return . pure $ []) items
+    return (Block <$> labeledItems)
+
+-------------------- Variable Resolution -----------------------------
+
 resolveBlock :: Block -> VarMapState (Either String Block)
 resolveBlock (Block items) = do
   rslt <- foldl' resolveBlockItems (return (Right [])) items
@@ -138,13 +209,42 @@ resolveStmt stmt = case stmt of
     return (LabeledStmt label <$> rslt )
   GoToStmt label -> return (pure $ GoToStmt label)
   CompoundStmt block -> do
-    maps <- getMaps
+    maps <- getFst
     let newMaps = copyVarMap maps
-    putMaps newMaps
+    putFst newMaps
     rslt <- resolveBlock block
-    putMaps maps
+    putFst maps
     return (CompoundStmt <$> rslt)
+  BreakStmt label -> return (pure $ BreakStmt label)
+  ContinueStmt label -> return (pure $ ContinueStmt label)
+  WhileStmt condition body label -> do
+    rsltCondition <- resolveExpr condition
+    rsltBody <- resolveStmt body
+    return (liftA3 WhileStmt rsltCondition rsltBody (pure label))
+  DoWhileStmt body condition label -> do
+    rsltBody <- resolveStmt body
+    rsltCondition <- resolveExpr condition
+    return (liftA3 DoWhileStmt rsltBody rsltCondition (pure label))
+  ForStmt init condition end body label -> do
+    maps <- getFst
+    let newMaps = copyVarMap maps
+    putFst newMaps
+    rsltInit <- resolveInit init
+    rsltCondition <- funnyFmap resolveExpr condition
+    rsltEnd <- funnyFmap resolveExpr end
+    rsltBody <- resolveStmt body
+    putFst maps
+    return (lift5 ForStmt rsltInit rsltCondition rsltEnd rsltBody (pure label))
   NullStmt -> return (pure NullStmt)
+
+resolveInit :: ForInit -> VarMapState (Either String ForInit)
+resolveInit init = case init of
+  InitDclr d -> do
+    rslt <- resolveDclr d
+    return (InitDclr <$> rslt)
+  InitExpr e -> do
+    rslt <- funnyFmap resolveExpr e
+    return (InitExpr <$> rslt)
 
 replace :: Eq a => a -> b -> [(a, b)] -> [(a, b)]
 replace x y maps =
@@ -157,20 +257,20 @@ copyVarMap = foldr (\(x, (y, _)) maps -> (x, (y, False)) : maps) []
 
 resolveDclr :: ASTDclr -> VarMapState (Either String ASTDclr)
 resolveDclr (ASTDclr name mExpr) = do
-  maps <- getMaps
+  maps <- getFst
   case lookup name maps of
     (Just (_, True)) ->
       return (Left $ "Semantics Error: Multiple declarations for " ++ name)
     (Just (_, False)) -> do
       newName <- makeUnique name
       let newMaps = replace name (newName, True) maps
-      putMaps newMaps
+      putFst newMaps
       newExpr <- funnyFmap resolveExpr mExpr
       return (ASTDclr newName <$> newExpr)
     Nothing -> do
       newName <- makeUnique name
       let newMaps = (name, (newName, True)) : maps
-      putMaps newMaps
+      putFst newMaps
       newExpr <- funnyFmap resolveExpr mExpr
       return (ASTDclr newName <$> newExpr)
 
@@ -211,13 +311,13 @@ resolveFactor fctr = case fctr of
     rslt <- resolveExpr expr
     return (FactorExpr <$> rslt)
   ASTVar name -> do
-    maps <- getMaps
+    maps <- getFst
     case lookup name maps of
       Just (newName, _) -> return (Right $ ASTVar newName)
       Nothing -> return (Left $ "Semantics Error: No declaration for " ++ name)
 
-makeUnique :: String -> VarMapState String
+makeUnique :: String -> State (a, Int) String
 makeUnique name = do
-  n <- getN
-  putN (n + 1)
+  n <- getSnd
+  putSnd (n + 1)
   return (name ++ "." ++ show n)
