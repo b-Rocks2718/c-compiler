@@ -1,16 +1,26 @@
+int next_collatz(int x){
+  if (x & 1){
+    x = 3 * x + 1;
+  } else {
+    x >>= 1;
+  }
+  return x;
+}
+
+int max(int a, int b){
+  if (a > b){
+    return a;
+  } else {
+    return b;
+  }
+}
+
 int main(void) {
   int x = 121;
-  int max = x;
+  int max_val = x;
   while (x != 1){
-    if (x % 2){
-      x = 3 * x + 1;
-    } else {
-      x = x / 2;
-    }
-
-    if (x > max){
-      max = x;
-    }
+    x = next_collatz(x);
+    max_val = max(max_val, x);
   }
-  return max;
+  return max_val;
 }

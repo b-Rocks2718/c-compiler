@@ -6,6 +6,8 @@ import Control.Applicative
 import Data.Char ( isSpace )
 import Text.Regex.Posix ( (=~) )
 
+-- TODO: Syntax Error messages kinda suck rn
+
 newtype Parser a b =
   Parser { runParser :: [a] -> Either String (b, [a]) }
 
@@ -110,17 +112,21 @@ data Token = IntLit Int
            | ForTok
            | BreakTok
            | ContinueTok
+           | Comma
+           -- future: | SwitchTok
+           -- future: | CaseTok
+           -- future: | DefaultTok
            deriving (Show, Eq)
 
 spaces :: Parser Char String
 spaces = many (satisfy isSpace)
 
--- assumes you'll only try to match the beginning of the string
+-- only matches the beginning of the string
 lexRegex :: String -> Parser Char String
 lexRegex regex = Parser f
   where
     f s
-      | s =~ regex = Right (match, drop (length match) s)
+      | s =~ ('^' : regex) = Right (match, drop (length match) s)
       | otherwise = Left $ "did not match regex: " ++ regex ++
         " at " ++ head (lines s)
       where match = (s =~ regex) :: String
@@ -139,63 +145,67 @@ lexEOF = spaces *> Parser f
 
 -- hard to generalize because token values have different types
 lexIntLit :: Parser Char Token
-lexIntLit = IntLit . read <$> lexRegex "^[0-9]+\\b"
+lexIntLit = IntLit . read <$> lexRegex "[0-9]+\\b"
 
 lexIdent :: Parser Char Token
-lexIdent = Ident <$> lexRegex "^[a-zA-Z_]\\w*\\b"
+lexIdent = Ident <$> lexRegex "[a-zA-Z_]\\w*\\b"
 
 -- remember: for tokens that start the same, put the longer one first
 lexToken :: Parser Char Token
-lexToken = lexConstToken Void "^void\\b" <|>
-           lexConstToken ReturnTok "^return\\b" <|>
-           lexConstToken IntTok "^int\\b" <|>
-           lexConstToken OpenP "^\\(" <|>
-           lexConstToken CloseP "^\\)" <|>
-           lexConstToken OpenB "^\\{" <|>
-           lexConstToken CloseB "^\\}" <|>
-           lexConstToken Semi "^;" <|>
-           lexConstToken Tilde "^~" <|>
-           lexConstToken IncTok "^\\+\\+" <|>
-           lexConstToken PlusEq "^\\+=" <|>
-           lexConstToken TimesEq "^\\*=" <|>
-           lexConstToken Asterisk "^\\*" <|>
-           lexConstToken DivEq "^/=" <|>
-           lexConstToken Slash "^/" <|>
-           lexConstToken Percent "^\\%" <|>
-           lexConstToken DecTok "^--" <|>
-           lexConstToken MinusEq "^-=" <|>
-           lexConstToken Plus "^\\+" <|>
-           lexConstToken Minus "^-" <|>
-           lexConstToken DoubleAmpersand "^&&" <|>
-           lexConstToken DoublePipe "^\\|\\|" <|>
-           lexConstToken AndEq "^&=" <|>
-           lexConstToken Ampersand "^&" <|>
-           lexConstToken OrEq "^\\|=" <|>
-           lexConstToken Pipe "^\\|" <|>
-           lexConstToken XorEq "^\\^=" <|>
-           lexConstToken Carat "^\\^" <|>
-           lexConstToken ShrEq "^>>=" <|>
-           lexConstToken ShlEq "^<<=" <|>
-           lexConstToken ShiftRTok "^>>" <|>
-           lexConstToken ShiftLTok "^<<" <|>
-           lexConstToken NotEqual "^!=" <|>
-           lexConstToken DoubleEquals "^==" <|>
-           lexConstToken Exclamation "^!" <|>
-           lexConstToken Equals "^=" <|>
-           lexConstToken GreaterThanEq "^>=" <|>
-           lexConstToken LessThanEq "^<=" <|>
-           lexConstToken GreaterThan "^>" <|>
-           lexConstToken LessThan "^<" <|>
-           lexConstToken IfTok "^if" <|>
-           lexConstToken ElseTok "^else" <|>
-           lexConstToken Question "^\\?" <|>
-           lexConstToken Colon "^:" <|>
-           lexConstToken GoToTok "^goto" <|>
-           lexConstToken DoTok "^do" <|>
-           lexConstToken WhileTok "^while" <|>
-           lexConstToken ForTok "^for" <|>
-           lexConstToken BreakTok "^break" <|>
-           lexConstToken ContinueTok "^continue" <|>
+lexToken = lexConstToken Void "void\\b" <|>
+           lexConstToken ReturnTok "return\\b" <|>
+           lexConstToken IntTok "int\\b" <|>
+           lexConstToken OpenP "\\(" <|>
+           lexConstToken CloseP "\\)" <|>
+           lexConstToken OpenB "\\{" <|>
+           lexConstToken CloseB "\\}" <|>
+           lexConstToken Semi ";" <|>
+           lexConstToken Tilde "~" <|>
+           lexConstToken IncTok "\\+\\+" <|>
+           lexConstToken PlusEq "\\+=" <|>
+           lexConstToken TimesEq "\\*=" <|>
+           lexConstToken Asterisk "\\*" <|>
+           lexConstToken DivEq "/=" <|>
+           lexConstToken Slash "/" <|>
+           lexConstToken Percent "\\%" <|>
+           lexConstToken DecTok "--" <|>
+           lexConstToken MinusEq "-=" <|>
+           lexConstToken Plus "\\+" <|>
+           lexConstToken Minus "-" <|>
+           lexConstToken DoubleAmpersand "&&" <|>
+           lexConstToken DoublePipe "\\|\\|" <|>
+           lexConstToken AndEq "&=" <|>
+           lexConstToken Ampersand "&" <|>
+           lexConstToken OrEq "\\|=" <|>
+           lexConstToken Pipe "\\|" <|>
+           lexConstToken XorEq "\\^=" <|>
+           lexConstToken Carat "\\^" <|>
+           lexConstToken ShrEq ">>=" <|>
+           lexConstToken ShlEq "<<=" <|>
+           lexConstToken ShiftRTok ">>" <|>
+           lexConstToken ShiftLTok "<<" <|>
+           lexConstToken NotEqual "!=" <|>
+           lexConstToken DoubleEquals "==" <|>
+           lexConstToken Exclamation "!" <|>
+           lexConstToken Equals "=" <|>
+           lexConstToken GreaterThanEq ">=" <|>
+           lexConstToken LessThanEq "<=" <|>
+           lexConstToken GreaterThan ">" <|>
+           lexConstToken LessThan "<" <|>
+           lexConstToken IfTok "if" <|>
+           lexConstToken ElseTok "else" <|>
+           lexConstToken Question "\\?" <|>
+           lexConstToken Colon ":" <|>
+           lexConstToken GoToTok "goto" <|>
+           lexConstToken DoTok "do" <|>
+           lexConstToken WhileTok "while" <|>
+           lexConstToken ForTok "for" <|>
+           lexConstToken BreakTok "break" <|>
+           lexConstToken ContinueTok "continue" <|>
+           lexConstToken Comma "," <|>
+           --future: lexConstToken SwitchTok "switch" <|>
+           --future: lexConstToken CaseTok "case" <|>
+           --future: lexConstToken DefaultTok "default" <|>
            lexIntLit <|>
            lexIdent
 

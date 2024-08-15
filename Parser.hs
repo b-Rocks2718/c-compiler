@@ -6,8 +6,7 @@ import Control.Applicative.HT
 import Data.List ( intercalate )
 
 -- AST data structure
-newtype ASTProg = ASTProg ASTFunc
-data ASTFunc = ASTFunc String Block
+newtype ASTProg = ASTProg [FunctionDclr]
 data BlockItem = StmtBlock ASTStmt | DclrBlock ASTDclr
 newtype Block = Block [BlockItem]
 data ASTStmt = RetStmt ASTExpr
@@ -22,6 +21,7 @@ data ASTStmt = RetStmt ASTExpr
              | DoWhileStmt ASTStmt ASTExpr (Maybe String)
              | ForStmt ForInit (Maybe ASTExpr) (Maybe ASTExpr) ASTStmt (Maybe String)
              | NullStmt
+             -- future: | SwitchStmt ASTExpr ASTStmt
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
              | ASTAssign ASTExpr ASTExpr
@@ -31,9 +31,17 @@ data Factor = ASTLit Int
              | ASTUnary UnaryOp Factor
              | FactorExpr ASTExpr
              | ASTVar String
-data ASTDclr = ASTDclr String (Maybe ASTExpr) -- initialization is optional
+             | FunctionCall String [ASTExpr]
+data ASTDclr = VarDclr VariableDclr -- initialization is optional
+             | FunDclr FunctionDclr
   deriving (Show)
-data ForInit = InitDclr ASTDclr | InitExpr (Maybe ASTExpr)
+
+data FunctionDclr = FunctionDclr String [VariableDclr] (Maybe Block)
+
+data VariableDclr = VariableDclr String (Maybe ASTExpr)
+  deriving (Show)
+
+data ForInit = InitDclr VariableDclr | InitExpr (Maybe ASTExpr)
   deriving (Show)
 
 data UnaryOp = Complement
@@ -51,17 +59,24 @@ data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
             deriving (Show, Eq)
 
 instance Show ASTProg where
-  show (ASTProg f) = "Program(\n" ++ showFunc 1 f ++ "\n)"
+  show (ASTProg f) = "Program(\n" ++ unlines (showFunc 1 <$> f) ++ "\n)"
 
-showFunc :: Int -> ASTFunc -> String
-showFunc n (ASTFunc name (Block body)) =
-  tabs ++ "Function(\n" ++ tabs ++ "    name=\"" ++ name ++
-  "\",\n" ++ tabs ++ "    body=[\n" ++
+showFunc :: Int -> FunctionDclr -> String
+showFunc n (FunctionDclr name params (Just (Block body))) =
+  tabs ++ "FunctionDef(\n" ++ tabs ++ "    name=\"" ++ name ++
+  "\",\n" ++
+  tabs ++ "    params=" ++ show params ++ "\n"++
+  tabs ++ "    body=[\n" ++
   unlines (showBlockItem (n + 2) <$> body) ++
   tabs ++ "    ]\n" ++ tabs ++ ")"
   where tabs = replicate (4 * n) ' '
+showFunc n (FunctionDclr name params Nothing) =
+  tabs ++ "FunctionDclr(\n" ++ tabs ++ "    name=\"" ++ name ++
+  "\",\n" ++ 
+  tabs ++ "    params=" ++ show params ++ ")"
+  where tabs = replicate (4 * n) ' '
 
-instance Show ASTFunc where
+instance Show FunctionDclr where
   show = showFunc 0
 
 instance Show BlockItem where
@@ -72,8 +87,12 @@ showBlockItem n (StmtBlock x) = showStatement n x ++ ","
 showBlockItem n (DclrBlock x) = showDeclaration n x ++ ","
 
 showDeclaration :: Int -> ASTDclr -> String
-showDeclaration n expr =
-  tabs ++ "Dclr(" ++ show expr ++ ")"
+showDeclaration n (FunDclr f) =
+  tabs ++ "Dclr(\n" ++ showFunc (n + 1) f ++ 
+    "\n" ++ tabs ++ ")"
+  where tabs = replicate (4 * n) ' '
+showDeclaration n (VarDclr v) =
+  tabs ++ "Dclr(" ++ show v ++ ")"
   where tabs = replicate (4 * n) ' '
 
 showStatement :: Int -> ASTStmt -> String
@@ -118,8 +137,8 @@ showStatement n (DoWhileStmt body condition label) =
   "    " ++ show label ++ ")"
   where tabs = replicate (4 * n) ' '
 showStatement n (ForStmt init condition end body label) =
-  tabs ++ "ForStmt(" ++ show init ++ ",\n" ++ 
-  tabs ++ "    " ++ showMaybe condition ++ ",\n" ++ 
+  tabs ++ "ForStmt(" ++ show init ++ ",\n" ++
+  tabs ++ "    " ++ showMaybe condition ++ ",\n" ++
   tabs ++ "    " ++ showMaybe end ++ ",\n" ++
   showStatement (n + 1) body ++ "\n" ++ tabs ++
   "    " ++ show label ++ ")"
@@ -146,6 +165,8 @@ instance Show Factor where
   show (ASTUnary op expr) = show op ++ "(" ++ show expr ++ ")"
   show (FactorExpr expr) = show expr
   show (ASTVar x) = "Var(" ++ show x ++ ")"
+  show (FunctionCall name args) = 
+    "FunctionCall(" ++ name ++ ", " ++ show args ++ ")"
 
 isIdent :: Token -> Bool
 isIdent (Ident _) = True
@@ -280,13 +301,26 @@ getPrec op = case op of
   ShrEqOp -> 1
 
 parseProgram :: Parser Token ASTProg
-parseProgram = ASTProg <$> parseFunction <* parseEOF
+parseProgram = ASTProg <$> many parseFunction <* parseEOF
 
-parseFunction :: Parser Token ASTFunc
-parseFunction = liftA2 ASTFunc
-  (identName <$> (match IntTok *> satisfy isIdent <* match OpenP <*
-                 optional (match Void) <* match CloseP))
-  parseBlock
+parseFunction :: Parser Token FunctionDclr
+parseFunction = liftA3 FunctionDclr
+  (identName <$> (match IntTok *> satisfy isIdent))
+  (match OpenP *>
+    ([] <$ match Void <* match CloseP <|> [] <$ match CloseP <|> some parseParam))
+  parseEndOfFunc
+
+parseEndOfFunc :: Parser Token (Maybe Block)
+parseEndOfFunc = do
+  body <- optional parseBlock
+  case body of
+    Just b -> return body -- function definition
+    Nothing -> Nothing <$ match Semi -- function declaration
+
+parseParam :: Parser Token VariableDclr
+parseParam = liftA2 VariableDclr 
+  (match IntTok *> (identName <$> satisfy isIdent) <* (match Comma <|> match CloseP)) 
+  (pure Nothing)
 
 parseBlock :: Parser Token Block
 parseBlock = match OpenB *> (Block <$> some parseBlockItem) <* match CloseB
@@ -308,24 +342,28 @@ parseStmt =
   CompoundStmt <$> parseBlock <|>
   BreakStmt Nothing <$ (match BreakTok <* match Semi) <|>
   ContinueStmt Nothing <$ (match ContinueTok <* match Semi) <|>
-  match WhileTok *> liftA3 WhileStmt (match OpenP *> parseExpr <* match CloseP) 
+  match WhileTok *> liftA3 WhileStmt (match OpenP *> parseExpr <* match CloseP)
     parseStmt (pure Nothing) <|>
-  match DoTok *> liftA3 DoWhileStmt parseStmt 
+  match DoTok *> liftA3 DoWhileStmt parseStmt
     (match WhileTok *> match OpenP *> parseExpr <* match CloseP <* match Semi) (pure Nothing) <|>
-  match ForTok *> lift5 ForStmt 
-    (match OpenP *> parseForInit) 
-    (optional parseExpr <* match Semi) 
+  match ForTok *> lift5 ForStmt
+    (match OpenP *> parseForInit)
+    (optional parseExpr <* match Semi)
     (optional parseExpr <* match CloseP)
     parseStmt (pure Nothing) <|>
   NullStmt <$ match Semi
 
 parseForInit :: Parser Token ForInit
-parseForInit = 
-  InitDclr <$> parseDclr <|>
+parseForInit =
+  InitDclr <$> parseVariableDclr <|>
   InitExpr <$> optional parseExpr <* match Semi
 
 parseDclr :: Parser Token ASTDclr
-parseDclr = liftA2 ASTDclr
+parseDclr = VarDclr <$> parseVariableDclr <|>
+            FunDclr <$> parseFunction
+
+parseVariableDclr :: Parser Token VariableDclr
+parseVariableDclr = liftA2 VariableDclr
   (identName <$> (match IntTok *> satisfy isIdent))
   (maybeParse (match Equals *> parseExpr) <* match Semi)
 
@@ -399,7 +437,13 @@ parseFactor = parseLit <|>
               parseUnary <|>
               parseParens <|>
               parsePostIncDec <|>
+              liftA2 FunctionCall (identName <$> satisfy isIdent) 
+                (match OpenP *> ([] <$ match CloseP <|> some parseArg)) <|>
               parseVar
+
+parseArg :: Parser Token ASTExpr
+parseArg = parseExpr <*
+  (match Comma <|> match CloseP)
 
 parseVar :: Parser Token Factor
 parseVar = ASTVar . identName <$> satisfy isIdent
@@ -421,4 +465,4 @@ parseEOF = Parser f
   where
     f ts
       | null ts = Right ((), ts)
-      | otherwise = Left $ "Syntax Error: Could not parse: " ++ show ts
+      | otherwise = Left $ "Syntax Error: Could not parse " ++ show ts

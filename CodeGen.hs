@@ -31,6 +31,7 @@ data MachineInstr = Add  Reg Reg Reg
                   | Shrc Reg Reg -- shift right w/ carry
                   | Shlc Reg Reg -- shift left w/ carry
                   | Cmp  Reg Reg -- compare
+                  | Mov  Reg Reg
                   | Lui  Reg Int -- load upper immediate
                   | Movi Reg Imm
                   | Jalr Reg Reg -- jump and link register
@@ -69,75 +70,95 @@ data Exception = Exit
 -- this function assumes no other registers are used in previous stage
 -- TODO: eliminate that assumption
 toMachineInstr :: String -> AsmInstr -> [MachineInstr]
-toMachineInstr name instr = loads ++ operation ++ stores
-  where loads = case getSrcs instr of
-          [a, b] -> loada ++ loadb
-            where loada = case a of
-                    Reg R3 -> []
-                    Stack n -> [Lw R3 bp n]
-                    AsmLit n -> [Movi R3 (ImmLit n)]
-                    _ -> error "invalid source"
-                  loadb = case b of
-                    Reg R4 -> []
-                    Stack n -> [Lw R4 bp n]
-                    AsmLit n -> [Movi R4 (ImmLit n)]
-                    _ -> error "invalid source"
-          [a] -> case a of
-            Reg R3 -> []
-            Stack n -> [Lw R3 bp n]
-            AsmLit n -> [Movi R3 (ImmLit n)]
-            _ -> error "invalid source"
-          _ -> []
-        operation = case instr of
-          Mov _ _ -> []
-          AsmCmp _ _ -> [Cmp R3 R4]
-          AsmUnary Complement _ _ -> [Not R3 R3]
-          AsmUnary Negate _ _ -> [Sub R3 R0 R3]
-          AsmBinary AddOp _ _ _ -> [Add R3 R3 R4]
-          AsmBinary SubOp _ _ _ -> [Sub R3 R3 R4]
-          AsmBinary BitAnd _ _ _ -> [And R3 R3 R4]
-          AsmBinary BitOr _ _ _ -> [Or R3 R3 R4]
-          AsmBinary BitXor _ _ _ -> [Xor R3 R3 R4]
-          AsmBinary MulOp _ _ _ -> [Call "mul"]
-          AsmBinary DivOp _ _ _ -> [Call "div"]
-          AsmBinary ModOp _ _ _ -> [Call "mod"]
-          AsmBinary BitShl _ _ _ -> [Call "left_shift"]
-          AsmBinary BitShr _ _ _ -> [Call "right_shift"]
-          AsmJump s -> [Movi R3 (ImmLabel s), Jalr R0 R3] -- will optimize later
-          AsmCondJump CondE s -> [Bz s]
-          AsmCondJump CondNE s -> [Bnz s]
-          AsmCondJump CondG s -> [Bg s]
-          AsmCondJump CondGE s -> [Bge s]
-          AsmCondJump CondL s -> [Bl s]
-          AsmCondJump CondLE s -> [Ble s]
-          AsmLabel s -> [Label s]
-          AllocateStack n -> [Addi sp sp n] -- n should be negative
-          Ret -> case name of 
-                  "main" -> [Sys Exit]
-                  _ -> [Addi sp bp 0,  
-                        Lw bp sp (-2),
-                        Lw R7 sp (-1), 
-                        Addi sp sp 2,
-                        Jalr R0 R7]
-        stores = case getDst instr of
-          [a] -> case a of
-            Reg r -> []
-            Stack n -> [Sw R3 bp n]
-            _ -> error "invalid destination"
-          _ -> []
+toMachineInstr name instr = 
+  case instr of
+    -- kind of a hack but it seems to work for now
+    AsmMov (Reg r1) (Reg r2) -> [Mov r1 r2]
+    AsmMov (Reg r) (AsmLit n) -> [Movi r (ImmLit n)]
+    AsmMov (Stack n) (Reg r) -> [Sw r bp n]
+    AsmMov (Reg r) (Stack n) -> [Lw r bp n]
+    AsmPush (Reg r) -> [Push r]
+    _ -> loads ++ operation ++ stores
+    where loads = case getSrcs instr of
+            [a, b] -> loada ++ loadb
+              where loada = case a of
+                      Reg R3 -> []
+                      Stack n -> [Lw R3 bp n]
+                      AsmLit n -> [Movi R3 (ImmLit n)]
+                      _ -> error $ "invalid source " ++ show instr
+                    loadb = case b of
+                      Reg R4 -> []
+                      Stack n -> [Lw R4 bp n]
+                      AsmLit n -> [Movi R4 (ImmLit n)]
+                      _ -> error $ "invalid source " ++ show instr
+            [a] -> case a of
+              Reg R3 -> []
+              Stack n -> [Lw R3 bp n]
+              AsmLit n -> [Movi R3 (ImmLit n)]
+              _ -> error $ "invalid source " ++ show instr
+            _ -> []
+          operation = case instr of
+            AsmMov _ _ -> []
+            AsmCmp _ _ -> [Cmp R3 R4]
+            AsmUnary Complement _ _ -> [Not R3 R3]
+            AsmUnary Negate _ _ -> [Sub R3 R0 R3]
+            AsmBinary AddOp _ _ _ -> [Add R3 R3 R4]
+            AsmBinary SubOp _ _ _ -> [Sub R3 R3 R4]
+            AsmBinary BitAnd _ _ _ -> [And R3 R3 R4]
+            AsmBinary BitOr _ _ _ -> [Or R3 R3 R4]
+            AsmBinary BitXor _ _ _ -> [Xor R3 R3 R4]
+            AsmBinary MulOp _ _ _ -> [Call "mul"]
+            AsmBinary DivOp _ _ _ -> [Call "div"]
+            AsmBinary ModOp _ _ _ -> [Call "mod"]
+            AsmBinary BitShl _ _ _ -> [Call "left_shift"]
+            AsmBinary BitShr _ _ _ -> [Call "right_shift"]
+            AsmJump s -> [Movi R3 (ImmLabel s), Jalr R0 R3] -- will optimize later
+            AsmCondJump CondE s -> [Bz s]
+            AsmCondJump CondNE s -> [Bnz s]
+            AsmCondJump CondG s -> [Bg s]
+            AsmCondJump CondGE s -> [Bge s]
+            AsmCondJump CondL s -> [Bl s]
+            AsmCondJump CondLE s -> [Ble s]
+            AsmLabel s -> [Label s]
+            AllocateStack n -> if n == 0 then []
+              else if n >= -64 && n <= 63
+                then [Addi sp sp n]
+              else [Movi R3 (ImmLit n), Add sp sp R3]
+            AsmCall f -> [Call f]
+            AsmPush _ -> [Push R3]
+            Ret -> case name of 
+              -- function epilogues
+                    "main" -> [Sys Exit]
+                    _ -> [Mov sp bp,
+                          Lw R7 bp 1,
+                          Lw bp bp 0,
+                          Addi sp sp 2,
+                          Jalr R0 R7]
+            x -> error $ show x
+          stores = case getDst instr of
+            [a] -> case a of
+              Reg R3 -> []
+              Stack n -> [Sw R3 bp n]
+              _ -> error $ "invalid destination "  ++ show instr
+            _ -> []
 
-progToMachine :: AsmProg -> [MachineInstr]
-progToMachine (AsmProg (AsmFunc name instrs)) =
+funcToMachine :: AsmFunc -> [MachineInstr]
+funcToMachine (AsmFunc name instrs) = 
   case name of
+    -- function prologues
     "main" -> [Label name, 
                Addi sp R0 0,
                Addi bp R0 0]
     _ -> [Label name, 
           Sw R7 sp (-1), 
           Sw bp sp (-2), 
-          Addi sp sp (-2), 
+          Addi sp sp (-2),
           Addi bp sp 0] 
   ++ (instrs >>= toMachineInstr name) 
+
+progToMachine :: AsmProg -> [MachineInstr]
+progToMachine (AsmProg funcs) = 
+  [Movi R3 (ImmLabel "main"), Jalr R0 R3] ++ (funcs >>= funcToMachine)
 
 asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
@@ -188,7 +209,7 @@ main = do
     putStrLn ("\nTAC:\n" ++ showEither tac)
   let asm = progToAsm <$> tac
   when ("--asm" `elem` flags) $ do
-    putStrLn ("AsmAST:\n" ++ showEither asm)
+    putStrLn ("\nAsmAST:\n" ++ showEither asm)
   let asm' = progToMachine <$> asm
   let code = unlines . fmap asmToStr <$> asm'
   when ("--code" `elem` flags) $ do
