@@ -1,2 +1,6 @@
-This is a WIP C compiler targeting the cpu I'm building.
-Since I'm not done building the cpu, I'll test the compiler on the simulation I have of the cpu in Digital. At some point I'll make a repository with the cpu schematics.
+This is a C compiler targeting the cpu I'm building.
+Since I'm not done building it, I'm testing the compiler on the simulation I have of the cpu in Digital. 
+At some point I'll make a repository with the cpu schematics.
+
+I wrote the assembler in Python a few years ago and it works but the code is a mess. 
+Eventually I'll write a better version in Haskell.

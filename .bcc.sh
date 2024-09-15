@@ -1,6 +1,6 @@
 
 function bcc {
-    # file is the first (and only) argument
+    # file is the first argument
     file=$1
 
     # get rid of .c extension
