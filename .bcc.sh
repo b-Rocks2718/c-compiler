@@ -10,7 +10,7 @@ function bcc {
     shift 1
 
     # run the compiler
-    runhaskell -i/home/b_rocks2718/c-compiler ~/c-compiler/CodeGen.hs ${file} $@
+    runhaskell ~/c-compiler/CodeGen.hs ${file} $@
 
     # run the assembler
     python3 ~/c-compiler/Assembler.py ${name}.s test_code/arithmetic.s
