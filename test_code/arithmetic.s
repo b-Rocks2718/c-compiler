@@ -142,3 +142,7 @@ rs_end:
 	lw r5 r1 -1 # pop registers
 	jalr r0 r7
 	
+# TODO: work out a more elegant way to do this
+putchar:
+  sys PUTCHAR
+  jalr r0 r7

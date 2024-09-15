@@ -1,26 +1,16 @@
-int next_collatz(int x){
-  if (x & 1){
-    x = 3 * x + 1;
-  } else {
-    x >>= 1;
-  }
-  return x;
-}
-
-int max(int a, int b){
-  if (a > b){
-    return a;
-  } else {
-    return b;
-  }
-}
+int putchar(int c);
 
 int main(void) {
-  int x = 121;
-  int max_val = x;
-  while (x != 1){
-    x = next_collatz(x);
-    max_val = max(max_val, x);
-  }
-  return max_val;
+  putchar(1); // H
+  putchar(2); // E
+  putchar(3); // L
+  putchar(3); // L
+  putchar(4); // O
+  putchar(0); 
+  putchar(5); // W
+  putchar(4); // O
+  putchar(6); // R
+  putchar(3); // L
+  putchar(7); // D
+  putchar(8); // !
 }

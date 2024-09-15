@@ -4,6 +4,7 @@ import System.Environment ( getArgs )
 import Data.List.Split ( splitOn )
 import Data.Char ( toLower, toUpper )
 import Control.Monad (when)
+import Control.Applicative
 
 import Lexer
 import Parser
@@ -54,6 +55,9 @@ data MachineInstr = Add  Reg Reg Reg
                   | Nop
                   | Sys Exception -- calls the OS
                   | Label String
+                  | Fill Int -- inserts data
+                  | NlComment String
+                  | Comment String
                   deriving (Show)
 
 data Imm = ImmLit Int | ImmLabel String
@@ -68,7 +72,7 @@ data Exception = Exit
 
 -- R3 and R4 are used as scratch registers
 -- this function assumes no other registers are used in previous stage
--- TODO: eliminate that assumption
+-- hopefully I can fix this nonsense when I write a register allocator
 toMachineInstr :: String -> AsmInstr -> [MachineInstr]
 toMachineInstr name instr = 
   case instr of
@@ -76,7 +80,11 @@ toMachineInstr name instr =
     AsmMov (Reg r1) (Reg r2) -> [Mov r1 r2]
     AsmMov (Reg r) (AsmLit n) -> [Movi r (ImmLit n)]
     AsmMov (Stack n) (Reg r) -> [Sw r bp n]
+    AsmMov (Data v) (Reg r) -> case r of
+      R3 -> [Movi R4 (ImmLabel v), Sw r R3 0]
+      _ -> [Movi R3 (ImmLabel v), Sw r R3 0]
     AsmMov (Reg r) (Stack n) -> [Lw r bp n]
+    AsmMov (Reg r) (Data v) -> [Movi R3 (ImmLabel v), Lw r R3 0]
     AsmPush (Reg r) -> [Push r]
     _ -> loads ++ operation ++ stores
     where loads = case getSrcs instr of
@@ -85,16 +93,19 @@ toMachineInstr name instr =
                       Reg R3 -> []
                       Stack n -> [Lw R3 bp n]
                       AsmLit n -> [Movi R3 (ImmLit n)]
+                      Data v -> [Movi R3 (ImmLabel v), Lw R3 R3 0]
                       _ -> error $ "invalid source " ++ show instr
                     loadb = case b of
                       Reg R4 -> []
                       Stack n -> [Lw R4 bp n]
                       AsmLit n -> [Movi R4 (ImmLit n)]
+                      Data v -> [Movi R4 (ImmLabel v), Lw R4 R4 0]
                       _ -> error $ "invalid source " ++ show instr
             [a] -> case a of
               Reg R3 -> []
               Stack n -> [Lw R3 bp n]
               AsmLit n -> [Movi R3 (ImmLit n)]
+              Data v -> [Movi R3 (ImmLabel v), Lw R3 R3 0]
               _ -> error $ "invalid source " ++ show instr
             _ -> []
           operation = case instr of
@@ -128,8 +139,9 @@ toMachineInstr name instr =
             AsmPush _ -> [Push R3]
             Ret -> case name of 
               -- function epilogues
-                    "main" -> [Sys Exit]
-                    _ -> [Mov sp bp,
+                    "main" -> [Comment "Function Epilogue", Sys Exit]
+                    _ -> [Comment "Function Epilogue",
+                          Mov sp bp,
                           Lw R7 bp 1,
                           Lw bp bp 0,
                           Addi sp sp 2,
@@ -139,26 +151,32 @@ toMachineInstr name instr =
             [a] -> case a of
               Reg R3 -> []
               Stack n -> [Sw R3 bp n]
+              Data v -> [Movi R4 (ImmLabel v), Sw R3 R4 0]
               _ -> error $ "invalid destination "  ++ show instr
             _ -> []
 
-funcToMachine :: AsmFunc -> [MachineInstr]
-funcToMachine (AsmFunc name instrs) = 
+-- global will be ignored until I update the assembler
+topLevelToMachine :: AsmTopLevel -> [MachineInstr]
+topLevelToMachine (AsmFunc name global instrs) = 
   case name of
     -- function prologues
     "main" -> [Label name, 
                Addi sp R0 0,
                Addi bp R0 0]
-    _ -> [Label name, 
+    _ -> [Label name,
+          Comment "Function Prologue", 
           Sw R7 sp (-1), 
           Sw bp sp (-2), 
           Addi sp sp (-2),
-          Addi bp sp 0] 
-  ++ (instrs >>= toMachineInstr name) 
+          Addi bp sp 0,
+          Comment "Function Body"] 
+  ++ (instrs >>= toMachineInstr name)
+topLevelToMachine (AsmStaticVar name global n) = [Label name, Fill n]
+topLevelToMachine (AsmComment s) = [NlComment s]
 
 progToMachine :: AsmProg -> [MachineInstr]
-progToMachine (AsmProg funcs) = 
-  [Movi R3 (ImmLabel "main"), Jalr R0 R3] ++ (funcs >>= funcToMachine)
+progToMachine (AsmProg topLevels) = 
+  [Movi R3 (ImmLabel "main"), Jalr R0 R3] ++ (topLevels >>= topLevelToMachine)
 
 asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
@@ -176,6 +194,9 @@ asmToStr (Bg s) = "\tbg " ++ s
 asmToStr (Bge s) = "\tbge " ++ s
 asmToStr (Bl s) = "\tbl " ++ s
 asmToStr (Ble s) = "\tble " ++ s
+asmToStr (Fill s) = "\t.fill " ++ show s
+asmToStr (NlComment s) = "\n# " ++ s
+asmToStr (Comment s) = "\t# " ++ s
 asmToStr instr =
   '\t' : filter (\c -> c/= '(' && c /= ')') (toLower <$> show instr)
 
@@ -202,12 +223,15 @@ main = do
   when ("--ast" `elem` flags) $ do
     putStrLn ("\nSyntax tree:\n" ++ showEither (fst <$> ast))
   let resolved = ast >>= resolveProg . fst
+  let resolved = ast >>= resolveProg . fst
+  let symbols = fst <$> resolved
   when ("--semantics" `elem` flags) $ do
-    putStrLn ("\nResolved tree:\n" ++ showEither resolved)
-  let tac = progToTAC <$> resolved
+    putStrLn ("\nResolved tree:\n" ++ showEither (snd <$> resolved))
+    putStrLn ("\nSymbol Table:\n" ++ showSymbols symbols)
+  let tac = uncurry progToTAC <$> resolved
   when ("--tac" `elem` flags) $ do
     putStrLn ("\nTAC:\n" ++ showEither tac)
-  let asm = progToAsm <$> tac
+  let asm = liftA2 progToAsm tac symbols
   when ("--asm" `elem` flags) $ do
     putStrLn ("\nAsmAST:\n" ++ showEither asm)
   let asm' = progToMachine <$> asm

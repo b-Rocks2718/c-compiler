@@ -107,7 +107,8 @@ branch_dict = {
 
 exception_dict = { 
     "EXIT": "1110000",
-    # next exception will get code 1110001, then 1110010, ...
+    "PUTCHAR" : "1110001",
+    # next exception will get code 1110010, then 1110011, ...
 
     "MODE_HALT": "0000010",
     "EXC_PRIV": "1010101",

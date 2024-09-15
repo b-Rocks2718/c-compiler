@@ -42,12 +42,15 @@ instance Monad (Parser a) where
           Left s -> Left s
           Right (x, rest) -> runParser (k x) rest
 
+-- always succeeds, result is Nothing when it can't parse
 maybeParse :: Parser a b -> Parser a (Maybe b)
 maybeParse p = pure <$> p <|> pure Nothing
 
+-- always fails, returns Left "error_msg"
 errorParse :: String -> Parser a b
 errorParse s = Parser $ const (Left s)
 
+-- succeeds if the next elements satisfies the condition p
 satisfy :: Show a => (a -> Bool) -> Parser a a
 satisfy p = Parser f
   where
@@ -113,6 +116,8 @@ data Token = IntLit Int
            | BreakTok
            | ContinueTok
            | Comma
+           | StaticTok
+           | ExternTok
            -- future: | SwitchTok
            -- future: | CaseTok
            -- future: | DefaultTok
@@ -143,7 +148,6 @@ lexEOF = spaces *> Parser f
       | null s = Right ((), s)
       | otherwise = Left $ "Syntax Error: Unrecognized token: " ++ [head s]
 
--- hard to generalize because token values have different types
 lexIntLit :: Parser Char Token
 lexIntLit = IntLit . read <$> lexRegex "[0-9]+\\b"
 
@@ -203,16 +207,13 @@ lexToken = lexConstToken Void "void\\b" <|>
            lexConstToken BreakTok "break" <|>
            lexConstToken ContinueTok "continue" <|>
            lexConstToken Comma "," <|>
+           lexConstToken StaticTok "static" <|>
+           lexConstToken ExternTok "extern" <|>
            --future: lexConstToken SwitchTok "switch" <|>
            --future: lexConstToken CaseTok "case" <|>
            --future: lexConstToken DefaultTok "default" <|>
            lexIntLit <|>
            lexIdent
-
--- for testing
-repeatParse :: Integer -> Parser Char a -> Parser Char [a]
-repeatParse 0 _ = pure []
-repeatParse n p = (:) <$> p <*> repeatParse (n - 1) p
 
 -- main function
 lexer :: Parser Char [Token]

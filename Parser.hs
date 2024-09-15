@@ -6,9 +6,12 @@ import Control.Applicative.HT
 import Data.List ( intercalate )
 
 -- AST data structure
-newtype ASTProg = ASTProg [FunctionDclr]
-data BlockItem = StmtBlock ASTStmt | DclrBlock ASTDclr
+newtype ASTProg = ASTProg [Declaration]
+
+data BlockItem = StmtBlock ASTStmt | DclrBlock Declaration
+
 newtype Block = Block [BlockItem]
+
 data ASTStmt = RetStmt ASTExpr
              | ExprStmt ASTExpr
              | IfStmt ASTExpr ASTStmt (Maybe ASTStmt) -- condition if else?
@@ -22,23 +25,35 @@ data ASTStmt = RetStmt ASTExpr
              | ForStmt ForInit (Maybe ASTExpr) (Maybe ASTExpr) ASTStmt (Maybe String)
              | NullStmt
              -- future: | SwitchStmt ASTExpr ASTStmt
+
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
              | ASTAssign ASTExpr ASTExpr
              | ASTPostAssign ASTExpr ASTExpr
              | Conditional ASTExpr ASTExpr ASTExpr
+             deriving (Eq)
+
 data Factor = ASTLit Int
              | ASTUnary UnaryOp Factor
              | FactorExpr ASTExpr
              | ASTVar String
              | FunctionCall String [ASTExpr]
-data ASTDclr = VarDclr VariableDclr -- initialization is optional
-             | FunDclr FunctionDclr
+             deriving (Eq)
+
+data Declaration = VarDclr VariableDclr | FunDclr FunctionDclr
   deriving (Show)
 
-data FunctionDclr = FunctionDclr String [VariableDclr] (Maybe Block)
+data StorageClass = Static | Extern
+  deriving (Show, Eq)
 
-data VariableDclr = VariableDclr String (Maybe ASTExpr)
+data TypeSpecifier = IntSpecifier -- eventually other types will be supported
+  deriving (Show)
+
+data FunPrefix = TypePrefix TypeSpecifier | StoragePrefix StorageClass
+
+data FunctionDclr = FunctionDclr String (Maybe StorageClass) [VariableDclr] (Maybe Block)
+
+data VariableDclr = VariableDclr String (Maybe StorageClass) (Maybe ASTExpr)
   deriving (Show)
 
 data ForInit = InitDclr VariableDclr | InitExpr (Maybe ASTExpr)
@@ -47,7 +62,7 @@ data ForInit = InitDclr VariableDclr | InitExpr (Maybe ASTExpr)
 data UnaryOp = Complement
              | Negate
              | BoolNot
-             deriving (Show)
+             deriving (Show, Eq)
 
 data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
              BitAnd | BitOr  | BitXor | BitShr | BitShl |
@@ -58,22 +73,26 @@ data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
              ShlEqOp | ShrEqOp | TernaryOp
             deriving (Show, Eq)
 
+-- print the AST in a (hopefully) readable way
 instance Show ASTProg where
-  show (ASTProg f) = "Program(\n" ++ unlines (showFunc 1 <$> f) ++ "\n)"
+  show (ASTProg ds) = "Program(\n" ++ unlines (showDeclaration 1 <$> ds) ++ "\n)"
 
 showFunc :: Int -> FunctionDclr -> String
-showFunc n (FunctionDclr name params (Just (Block body))) =
+showFunc n (FunctionDclr name storageClass params (Just (Block body))) =
   tabs ++ "FunctionDef(\n" ++ tabs ++ "    name=\"" ++ name ++
   "\",\n" ++
   tabs ++ "    params=" ++ show params ++ "\n"++
   tabs ++ "    body=[\n" ++
   unlines (showBlockItem (n + 2) <$> body) ++
-  tabs ++ "    ]\n" ++ tabs ++ ")"
+  tabs ++ "    ]\n" ++
+  tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
+  tabs ++ ")"
   where tabs = replicate (4 * n) ' '
-showFunc n (FunctionDclr name params Nothing) =
+showFunc n (FunctionDclr name storageClass params Nothing) =
   tabs ++ "FunctionDclr(\n" ++ tabs ++ "    name=\"" ++ name ++
-  "\",\n" ++ 
-  tabs ++ "    params=" ++ show params ++ ")"
+  "\",\n" ++
+  tabs ++ "    params=" ++ show params ++ "\n" ++
+  tabs ++ "    storage class=" ++ show storageClass ++ ")"
   where tabs = replicate (4 * n) ' '
 
 instance Show FunctionDclr where
@@ -86,9 +105,9 @@ showBlockItem :: Int -> BlockItem -> String
 showBlockItem n (StmtBlock x) = showStatement n x ++ ","
 showBlockItem n (DclrBlock x) = showDeclaration n x ++ ","
 
-showDeclaration :: Int -> ASTDclr -> String
+showDeclaration :: Int -> Declaration -> String
 showDeclaration n (FunDclr f) =
-  tabs ++ "Dclr(\n" ++ showFunc (n + 1) f ++ 
+  tabs ++ "Dclr(\n" ++ showFunc (n + 1) f ++
     "\n" ++ tabs ++ ")"
   where tabs = replicate (4 * n) ' '
 showDeclaration n (VarDclr v) =
@@ -165,7 +184,7 @@ instance Show Factor where
   show (ASTUnary op expr) = show op ++ "(" ++ show expr ++ ")"
   show (FactorExpr expr) = show expr
   show (ASTVar x) = "Var(" ++ show x ++ ")"
-  show (FunctionCall name args) = 
+  show (FunctionCall name args) =
     "FunctionCall(" ++ name ++ ", " ++ show args ++ ")"
 
 isIdent :: Token -> Bool
@@ -215,7 +234,7 @@ isBinOp op =
     XorEq -> True
     ShlEq -> True
     ShrEq -> True
-    Question -> True -- close enough
+    Question -> True -- ternary operator can be parsed like a binary operator
     _ -> False
 
 identName :: Token -> String
@@ -301,14 +320,14 @@ getPrec op = case op of
   ShrEqOp -> 1
 
 parseProgram :: Parser Token ASTProg
-parseProgram = ASTProg <$> many parseFunction <* parseEOF
+parseProgram = ASTProg <$> many parseDclr <* parseEOF
 
 parseFunction :: Parser Token FunctionDclr
-parseFunction = liftA3 FunctionDclr
-  (identName <$> (match IntTok *> satisfy isIdent))
-  (match OpenP *>
-    ([] <$ match Void <* match CloseP <|> [] <$ match CloseP <|> some parseParam))
-  parseEndOfFunc
+parseFunction = do
+  (type_, storageClass) <- parseTypeAndStorageClass
+  name <- identName <$> satisfy isIdent
+  params <- match OpenP *> ([] <$ match Void <* match CloseP <|> [] <$ match CloseP <|> some parseParam)
+  FunctionDclr name storageClass params <$> parseEndOfFunc
 
 parseEndOfFunc :: Parser Token (Maybe Block)
 parseEndOfFunc = do
@@ -318,9 +337,10 @@ parseEndOfFunc = do
     Nothing -> Nothing <$ match Semi -- function declaration
 
 parseParam :: Parser Token VariableDclr
-parseParam = liftA2 VariableDclr 
-  (match IntTok *> (identName <$> satisfy isIdent) <* (match Comma <|> match CloseP)) 
-  (pure Nothing)
+parseParam = liftA3 VariableDclr
+  (match IntTok *> (identName <$> satisfy isIdent) <* (match Comma <|> match CloseP))
+  (pure Nothing) -- params don't have storage specifiers
+  (pure Nothing) -- params aren't initialized with an expression
 
 parseBlock :: Parser Token Block
 parseBlock = match OpenB *> (Block <$> some parseBlockItem) <* match CloseB
@@ -358,14 +378,47 @@ parseForInit =
   InitDclr <$> parseVariableDclr <|>
   InitExpr <$> optional parseExpr <* match Semi
 
-parseDclr :: Parser Token ASTDclr
+parseDclr :: Parser Token Declaration
 parseDclr = VarDclr <$> parseVariableDclr <|>
             FunDclr <$> parseFunction
 
 parseVariableDclr :: Parser Token VariableDclr
-parseVariableDclr = liftA2 VariableDclr
-  (identName <$> (match IntTok *> satisfy isIdent))
-  (maybeParse (match Equals *> parseExpr) <* match Semi)
+parseVariableDclr = do
+  (type_, storageClass) <- parseTypeAndStorageClass
+  name <- identName <$> satisfy isIdent
+  expr <- maybeParse (match Equals *> parseExpr) <* match Semi
+  return (VariableDclr name storageClass expr)
+
+-- parses a type specifier or a storage class
+parseTypeOrStorageClass :: Parser Token FunPrefix
+parseTypeOrStorageClass = do
+  prefix <- match IntTok <|> (match StaticTok <|> match ExternTok)
+  case prefix of
+    IntTok -> return (TypePrefix IntSpecifier)
+    StaticTok -> return (StoragePrefix Static)
+    ExternTok -> return (StoragePrefix Extern)
+    x -> errorParse $ "Invalid function prefix: " ++ show x
+
+-- type and storage specifiers can come in any order
+-- this function separates them into two lists
+parseTypesAndStorageClasses :: Parser Token ([TypeSpecifier], [StorageClass])
+parseTypesAndStorageClasses = do
+  prefixes <- many parseTypeOrStorageClass
+  let f prefix (types, storageClasses) = (case prefix of
+        TypePrefix t -> (t : types, storageClasses)
+        StoragePrefix s-> (types, s : storageClasses))
+  return (foldr f ([], []) prefixes)
+
+-- ensures the list of types and storage specifiers makes sense
+parseTypeAndStorageClass :: Parser Token (TypeSpecifier, Maybe StorageClass)
+parseTypeAndStorageClass = do
+  (types, storageClasses) <- parseTypesAndStorageClasses
+  if length types /= 1 then
+    errorParse $ "Invalid type specifier: " ++ show types
+  else if length storageClasses > 1 then
+    errorParse $ "Invalid storage class: " ++ show storageClasses
+  else
+    return (IntSpecifier, safeHead storageClasses)
 
 parseLit :: Parser Token Factor
 parseLit = ASTLit . intLitVal <$> satisfy isIntLit
@@ -437,7 +490,7 @@ parseFactor = parseLit <|>
               parseUnary <|>
               parseParens <|>
               parsePostIncDec <|>
-              liftA2 FunctionCall (identName <$> satisfy isIdent) 
+              liftA2 FunctionCall (identName <$> satisfy isIdent)
                 (match OpenP *> ([] <$ match CloseP <|> some parseArg)) <|>
               parseVar
 
@@ -466,3 +519,7 @@ parseEOF = Parser f
     f ts
       | null ts = Right ((), ts)
       | otherwise = Left $ "Syntax Error: Could not parse " ++ show ts
+
+safeHead :: [a] -> Maybe a
+safeHead (x : _) = Just x
+safeHead [] = Nothing

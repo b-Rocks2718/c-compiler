@@ -6,8 +6,10 @@ import TAC
 import Semantics
 import Control.Applicative
 
-newtype AsmProg = AsmProg [AsmFunc] deriving (Show)
-data AsmFunc = AsmFunc String [AsmInstr]
+newtype AsmProg = AsmProg [AsmTopLevel] deriving (Show)
+data AsmTopLevel = AsmFunc String Bool [AsmInstr]
+                 | AsmStaticVar String Bool Int -- AsmStaticVar name global init
+                 | AsmComment String
 
 data AsmInstr = AsmMov Operand Operand
               | AsmUnary UnaryOp Operand Operand
@@ -26,6 +28,7 @@ data Operand = AsmLit Int
              | Reg Reg
              | Pseudo String -- pseudoregister/identifier
              | Stack Int -- location relative to sp
+             | Data String
              deriving (Show, Eq)
 
 data Reg = R0 | R1 | R2 | R3 | R4 | R5 | R6 | R7
@@ -41,10 +44,14 @@ sp = R1
 bp :: Reg
 bp = R2
 
-instance Show AsmFunc where
-  show (AsmFunc name instrs) =
-    "\n    AsmFunc " ++ show name ++ ":\n" ++
-    unlines (("        " ++) . show <$> instrs)
+instance Show AsmTopLevel where
+  show (AsmFunc name global instrs) =
+    "\n    AsmFunc " ++ show name ++ ", global=" ++ show global ++ 
+    ":\n" ++ unlines (("        " ++) . show <$> instrs)
+  show (AsmStaticVar name global init) =
+    "\n    AsmStaticVar " ++ show name ++ " " ++
+      show global ++ " " ++ show init
+  show (AsmComment s) = "\n    TACComment " ++ show s
 
 instance Show Reg where
   show R0 = "r0 "
@@ -56,14 +63,16 @@ instance Show Reg where
   show R6 = "r6 "
   show R7 = "r7 "
 
-progToAsm :: TACProg -> AsmProg
-progToAsm (TACProg p) = AsmProg (funcToAsm <$> p)
+progToAsm :: TACProg -> SymbolTable -> AsmProg
+progToAsm (TACProg p) symbols = AsmProg (topLevelToAsm symbols <$> p)
 
-funcToAsm :: TACFunc -> AsmFunc
-funcToAsm (TACFunc name params body) =
-  AsmFunc name $ replacePseudo maps <$> instrs
-  where (maps, size) = createMaps instrs
+topLevelToAsm :: SymbolTable -> TACTopLevel -> AsmTopLevel
+topLevelToAsm symbols (TACFunc name global params body) =
+  AsmFunc name global $ replacePseudo maps <$> instrs
+  where (maps, size) = createMaps instrs symbols
         instrs = AllocateStack (size + 1)  : paramsToAsm params ++ (body >>= exprToAsm)
+topLevelToAsm _ (TACStaticVar name global init) = AsmStaticVar name global init
+topLevelToAsm _ (TACComment s) = AsmComment s
 
 paramsToAsm :: [String] -> [AsmInstr]
 paramsToAsm ps = getZipList (ZipList copyList <*> ZipList ps)
@@ -103,14 +112,20 @@ exprToAsm instr =
             stackArgs = drop 4 srcs
             stackList = repeat (AsmPush . tacValToAsm)
 
-createMaps :: [AsmInstr] -> ([(Operand, Operand)], Int)
-createMaps xs = foldr f ([], -1) (xs >>= getOps)
-  where f opr (maps, size) =
-          case opr of
-            (Pseudo _) -> case lookup opr maps of
-              (Just _) -> (maps, size)
-              Nothing -> ((opr, Stack size):maps, size - 1)
-            _ -> (maps, size)
+createMaps :: [AsmInstr] -> SymbolTable -> ([(Operand, Operand)], Int)
+createMaps xs symbols = foldr (createMapsFold symbols) ([], -1) (xs >>= getOps)
+
+createMapsFold :: SymbolTable -> Operand -> ([(Operand, Operand)], Int) -> ([(Operand, Operand)], Int)
+createMapsFold symbols opr (maps, size) =
+  case opr of
+    (Pseudo v) -> 
+      case lookup opr maps of
+        (Just _) -> (maps, size)
+        Nothing -> case lookup v symbols of
+          -- static var is stored in data section, not stack
+          Just (_, StaticAttr init global) -> ((opr, Data v):maps, size)
+          _ -> ((opr, Stack size):maps, size - 1)
+    _ -> (maps, size)
 
 getOps :: AsmInstr -> [Operand]
 getOps x = getDst x ++ getSrcs x
@@ -138,7 +153,9 @@ replacePseudo :: [(Operand, Operand)] -> AsmInstr -> AsmInstr
 replacePseudo maps = mapOps f
   where f op = case lookup op maps of
           (Just newOp) -> newOp
-          Nothing -> op
+          Nothing -> case op of
+            Pseudo s -> error "Compiler Error: Missing map for pseudoregister"
+            _ -> op
 
 mapOps :: (Operand -> Operand) -> AsmInstr -> AsmInstr
 mapOps f (AsmMov a b) = AsmMov (f a) (f b)

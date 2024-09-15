@@ -7,8 +7,11 @@ import Data.List ( foldl' )
 import Data.Maybe
 import Control.Monad.State
 
-newtype TACProg  = TACProg [TACFunc] deriving (Show)
-data TACFunc  = TACFunc String [String] [TACInstr]
+
+newtype TACProg  = TACProg [TACTopLevel] deriving (Show)
+data TACTopLevel  = TACFunc String Bool [String] [TACInstr] -- TACFunc name global params body
+                  | TACStaticVar String Bool Int -- TACStaticVar name global init
+                  | TACComment String
 data TACInstr = TACReturn TACVal
               | TACUnary UnaryOp TACVal TACVal -- op dst src
               | TACBinary BinOp TACVal TACVal TACVal -- op dst scr1 scr2
@@ -30,21 +33,48 @@ data Condition = CondE | CondNE | CondG | CondGE | CondL | CondLE
 
 type TACState = State (TACVal, Int)
 
-instance Show TACFunc where
-  show (TACFunc name params instrs) =
-    "\n    TACFunc " ++ show name ++ ":\n" ++
-    unlines (("        " ++) . show <$> instrs)
+instance Show TACTopLevel where
+  show (TACFunc name global params instrs) =
+    "\n    TACFunc " ++ show name ++ ", global=" ++ show global ++
+    ":\n" ++ unlines (("        " ++) . show <$> instrs)
+  show (TACStaticVar name global init) =
+    "\n    TACStaticVar " ++ show name ++ " " ++
+      show global ++ " " ++ show init
+  show (TACComment s) = "\n    TACComment " ++ show s
 
 -- initialize global counter here
-progToTAC :: ASTProg -> TACProg
-progToTAC (ASTProg p) = TACProg (evalFunc <$> p)
-  where evalFunc f = evalState (funcToTAC f) (TACLit 0, 0)
+progToTAC :: SymbolTable -> ASTProg -> TACProg
+progToTAC symbols (ASTProg p) =
+  let evalDclr d = evalState (fileScopeDclrToTAC symbols d) (TACLit 0, 0)
+  in TACProg ([TACComment "Data Section:"] ++ concatMap symbolToTAC symbols ++ 
+              [TACComment "Code Section:"] ++ concatMap evalDclr p)
 
-funcToTAC :: FunctionDclr -> TACState TACFunc
-funcToTAC (FunctionDclr name params body) = do
-  bodyTAC <- mBodyToTAC name body
-  return $ TACFunc name (paramToTAC <$> params) $
-    bodyTAC ++ [TACReturn (TACLit 0)]
+fileScopeDclrToTAC :: SymbolTable -> Declaration -> TACState [TACTopLevel]
+fileScopeDclrToTAC symbols dclr = case dclr of
+  VarDclr (VariableDclr v _ _) -> return [] -- returns empty list (will process later)
+  FunDclr f -> funcToTAC f symbols -- returns singleton list
+
+-- takes an element of the symbol table, returns a global var or empty list
+symbolToTAC :: (String, (Type_, IdentAttrs)) -> [TACTopLevel]
+symbolToTAC (name, (IntType, StaticAttr init global)) = 
+  case init of
+    Initial i -> [TACStaticVar name global i]
+    Tentative -> [TACStaticVar name global 0]
+    NoInit -> []
+symbolToTAC _ = []
+
+funcToTAC :: FunctionDclr -> SymbolTable -> TACState [TACTopLevel]
+funcToTAC (FunctionDclr name mStorage params mBody) symbols = 
+  case mBody of 
+    Just _ -> do
+      bodyTAC <- mBodyToTAC name mBody
+      case lookup name symbols of
+        Just (FunType _, attrs) ->
+          return [TACFunc name (snd . getFunAttrs $ attrs) (paramToTAC <$> params) $
+          bodyTAC ++ [TACReturn (TACLit 0)]]
+        _ -> error "Compiler Error: missing or invalid symbol table entry"
+    Nothing -> return []
+
 
 mBodyToTAC :: String -> Maybe Block -> TACState [TACInstr]
 mBodyToTAC name mBody = case mBody of
@@ -52,7 +82,7 @@ mBodyToTAC name mBody = case mBody of
   Nothing -> return []
 
 paramToTAC :: VariableDclr -> String
-paramToTAC (VariableDclr name mExpr) = name
+paramToTAC (VariableDclr name _ _) = name
 
 blockToTAC :: String -> Block -> TACState [TACInstr]
 blockToTAC name (Block items) = do
@@ -68,19 +98,19 @@ blockItemsToTAC name state item = case item of
     return (instrs ++ newInstrs)
   DclrBlock dclr -> do
     instrs <- state
-    newInstrs <- dclrToTAC name dclr
+    newInstrs <- localDclrToTAC name dclr
     return (instrs ++ newInstrs)
 
-dclrToTAC :: String -> ASTDclr -> TACState [TACInstr]
-dclrToTAC name dclr = case dclr of
+localDclrToTAC :: String -> Declaration -> TACState [TACInstr]
+localDclrToTAC name dclr = case dclr of
   VarDclr v -> varDclrToTAC name v
   FunDclr f -> case f of
-    (FunctionDclr _ _ Nothing) -> return [] -- we chillin
-    _ -> error "we not chillin"
+    (FunctionDclr _ _ _ Nothing) -> return []
+    _ -> error "Compiler Error: Local function should have been found by now"
       -- local functions definitions should have been caught by now
 
 varDclrToTAC :: String -> VariableDclr -> TACState [TACInstr]
-varDclrToTAC name (VariableDclr varName mExpr) = case mExpr of
+varDclrToTAC name (VariableDclr varName mStorage mExpr) = case mExpr of
   Just expr -> exprToTAC name (ASTAssign (Factor $ ASTVar varName) expr)
   Nothing -> pure []
 
@@ -101,10 +131,10 @@ stmtToTAC name stmt = case stmt of
   (CompoundStmt block) -> blockToTAC name block
   (BreakStmt mLabel) -> case mLabel of
     Just label -> return [TACJump $ label ++ ".break"]
-    Nothing -> error "Critical Error"
+    Nothing -> error "Compiler Error: Loops should be labeled by now"
   (ContinueStmt mLabel) -> case mLabel of
     Just label -> return [TACJump $ label ++ ".continue"]
-    Nothing -> error "Critical Error"
+    Nothing -> error "Compiler Error: Loops should be labeled by now"
   (DoWhileStmt body condition mLabel) -> doWhileToTAC name body condition mLabel
   (WhileStmt condition body mLabel) -> whileToTAC name condition body mLabel
   (ForStmt init condition end body mLabel) -> forToTAC name init condition end body mLabel
@@ -146,8 +176,8 @@ forToTAC :: String -> ForInit -> Maybe ASTExpr -> Maybe ASTExpr ->
   ASTStmt -> Maybe String -> TACState [TACInstr]
 forToTAC name init condition end body mLabel = do
   let label = case mLabel of
-        Just x -> x -- loops should be labeled by now
-        Nothing -> error "semantic analysis? more like semantic analySUS"
+        Just x -> x
+        Nothing -> error "Compiler Error: Loops should be labeled by now"
   initInstrs <- initToTAC name init
   bodyInstrs <- stmtToTAC name body
   conditionInstrs <- case condition of
