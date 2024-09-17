@@ -143,8 +143,8 @@ stmtToTAC name stmt = case stmt of
 doWhileToTAC :: String -> ASTStmt -> ASTExpr -> Maybe String -> TACState [TACInstr]
 doWhileToTAC name body condition mLabel = do
   let label = case mLabel of
-        Just x -> x -- loops should be labeled by now
-        Nothing -> error "semantic analysis? more like semantic analySUS"
+        Just x -> x
+        Nothing -> error "Compiler Error: loops should be labeled by now"
   bodyInstrs <- stmtToTAC name body
   conditionInstrs <- exprToTAC name condition
   rslt <- getFst
@@ -159,8 +159,8 @@ doWhileToTAC name body condition mLabel = do
 whileToTAC :: String -> ASTExpr -> ASTStmt -> Maybe String -> TACState [TACInstr]
 whileToTAC name condition body mLabel = do
   let label = case mLabel of
-        Just x -> x -- loops should be labeled by now
-        Nothing -> error "semantic analysis? more like semantic analySUS"
+        Just x -> x
+        Nothing -> error "Compiler Error: loops should be labeled by now"
   bodyInstrs <- stmtToTAC name body
   conditionInstrs <- exprToTAC name condition
   rslt <- getFst
