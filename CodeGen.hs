@@ -223,7 +223,6 @@ main = do
   when ("--ast" `elem` flags) $ do
     putStrLn ("\nSyntax tree:\n" ++ showEither (fst <$> ast))
   let resolved = ast >>= resolveProg . fst
-  let resolved = ast >>= resolveProg . fst
   let symbols = fst <$> resolved
   when ("--semantics" `elem` flags) $ do
     putStrLn ("\nResolved tree:\n" ++ showEither (snd <$> resolved))
