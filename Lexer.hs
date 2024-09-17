@@ -196,19 +196,19 @@ lexToken = lexConstToken Void "void\\b" <|>
            lexConstToken LessThanEq "<=" <|>
            lexConstToken GreaterThan ">" <|>
            lexConstToken LessThan "<" <|>
-           lexConstToken IfTok "if" <|>
-           lexConstToken ElseTok "else" <|>
+           lexConstToken IfTok "if\\b" <|>
+           lexConstToken ElseTok "else\\b" <|>
            lexConstToken Question "\\?" <|>
            lexConstToken Colon ":" <|>
-           lexConstToken GoToTok "goto" <|>
-           lexConstToken DoTok "do" <|>
-           lexConstToken WhileTok "while" <|>
-           lexConstToken ForTok "for" <|>
-           lexConstToken BreakTok "break" <|>
-           lexConstToken ContinueTok "continue" <|>
+           lexConstToken GoToTok "goto\\b" <|>
+           lexConstToken DoTok "do\\b" <|>
+           lexConstToken WhileTok "while\\b" <|>
+           lexConstToken ForTok "for\\b" <|>
+           lexConstToken BreakTok "break\\b" <|>
+           lexConstToken ContinueTok "continue\\b" <|>
            lexConstToken Comma "," <|>
-           lexConstToken StaticTok "static" <|>
-           lexConstToken ExternTok "extern" <|>
+           lexConstToken StaticTok "static\\b" <|>
+           lexConstToken ExternTok "extern\\b" <|>
            --future: lexConstToken SwitchTok "switch" <|>
            --future: lexConstToken CaseTok "case" <|>
            --future: lexConstToken DefaultTok "default" <|>
