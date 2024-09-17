@@ -474,7 +474,7 @@ exprToBool expr = isConst expr >>= (\x -> if x /= 0 then pure True else pure Fal
 
 showSymbols :: Either String SymbolTable -> String
 showSymbols (Right symbols) = 
-  concatMap (\(ident, attrs) -> show ident ++ ": " ++ show attrs ++ "\n") symbols
+  symbols >>= (\(ident, attrs) -> show ident ++ ": " ++ show attrs ++ "\n")
 showSymbols (Left msg) = msg
 
 -------------------- Identifier Resolution -----------------------------
