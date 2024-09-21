@@ -146,7 +146,7 @@ toMachineInstr name instr =
                           Lw bp bp 0,
                           Addi sp sp 2,
                           Jalr R0 R7]
-            x -> error $ show x
+            x -> error $ "Compiler Error: undefined operation " ++ show x
           stores = case getDst instr of
             [a] -> case a of
               Reg R3 -> []

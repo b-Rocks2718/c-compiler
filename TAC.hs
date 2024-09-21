@@ -7,7 +7,6 @@ import Data.List ( foldl' )
 import Data.Maybe
 import Control.Monad.State
 
-
 newtype TACProg  = TACProg [TACTopLevel] deriving (Show)
 data TACTopLevel  = TACFunc String Bool [String] [TACInstr] -- TACFunc name global params body
                   | TACStaticVar String Bool Int -- TACStaticVar name global init
@@ -46,7 +45,7 @@ instance Show TACTopLevel where
 progToTAC :: SymbolTable -> ASTProg -> TACProg
 progToTAC symbols (ASTProg p) =
   let evalDclr d = evalState (fileScopeDclrToTAC symbols d) (TACLit 0, 0)
-  in TACProg ([TACComment "Data Section:"] ++ concatMap symbolToTAC symbols ++ 
+  in TACProg ([TACComment "Data Section:"] ++ concatMap symbolToTAC symbols ++
               [TACComment "Code Section:"] ++ concatMap evalDclr p)
 
 fileScopeDclrToTAC :: SymbolTable -> Declaration -> TACState [TACTopLevel]
@@ -56,7 +55,7 @@ fileScopeDclrToTAC symbols dclr = case dclr of
 
 -- takes an element of the symbol table, returns a global var or empty list
 symbolToTAC :: (String, (Type_, IdentAttrs)) -> [TACTopLevel]
-symbolToTAC (name, (IntType, StaticAttr init global)) = 
+symbolToTAC (name, (IntType, StaticAttr init global)) =
   case init of
     Initial i -> [TACStaticVar name global i]
     Tentative -> [TACStaticVar name global 0]
@@ -64,8 +63,8 @@ symbolToTAC (name, (IntType, StaticAttr init global)) =
 symbolToTAC _ = []
 
 funcToTAC :: FunctionDclr -> SymbolTable -> TACState [TACTopLevel]
-funcToTAC (FunctionDclr name mStorage params mBody) symbols = 
-  case mBody of 
+funcToTAC (FunctionDclr name mStorage params mBody) symbols =
+  case mBody of
     Just _ -> do
       bodyTAC <- mBodyToTAC name mBody
       case lookup name symbols of
@@ -138,7 +137,38 @@ stmtToTAC name stmt = case stmt of
   (DoWhileStmt body condition mLabel) -> doWhileToTAC name body condition mLabel
   (WhileStmt condition body mLabel) -> whileToTAC name condition body mLabel
   (ForStmt init condition end body mLabel) -> forToTAC name init condition end body mLabel
+  (SwitchStmt expr stmt mLabel cases) -> do
+    let label = case mLabel of
+          Just l -> l
+          Nothing -> error "Compiler Error: Switch statement should be labeled by now"
+    exprInstrs <- exprToTAC name expr
+    casesInstrs <- casesToTAC label cases
+    stmtInstrs <- stmtToTAC name stmt
+    return (exprInstrs ++ casesInstrs ++ stmtInstrs ++ [TACLabel $ label ++ ".break"])
+  (CaseStmt expr stmt label) -> case label of
+    Just l -> do
+      stmtInstrs <- stmtToTAC name stmt
+      return (TACLabel l : stmtInstrs)
+    Nothing -> error "Compiler Error: Case statement should be labeled by now"
+  (DefaultStmt stmt label) -> case label of
+    Just l -> do
+      stmtInstrs <- stmtToTAC name stmt
+      return (TACLabel l : stmtInstrs)
+    Nothing -> error "Compiler Error: Default statement should be labeled by now"
   NullStmt -> return []
+
+casesToTAC :: String -> Maybe [CaseLabel] -> TACState [TACInstr]
+casesToTAC label mCases = case mCases of
+  Nothing -> error "Compiler Error: cases should be collected by now"
+  Just cases -> do
+    instrs <- mapM (caseToTAC label) cases
+    return (concat instrs ++ [TACJump $ label ++ ".break"])
+
+caseToTAC :: String -> CaseLabel -> TACState [TACInstr]
+caseToTAC label (IntCase n) = do
+  rslt <- getFst
+  return [TACCmp rslt (TACLit n), TACCondJump CondE $ label ++ "." ++ show n]
+caseToTAC label DefaultCase = return [TACJump $ label ++ ".default"]
 
 doWhileToTAC :: String -> ASTStmt -> ASTExpr -> Maybe String -> TACState [TACInstr]
 doWhileToTAC name body condition mLabel = do
@@ -214,7 +244,7 @@ ifToTAC name condition left = do
   rslt2 <- stmtToTAC name left
   dst <- makeTemp name
   n <- getSnd
-  let endStr = "end." ++ show n
+  let endStr = name ++ ".end." ++ show n
   put (dst, n + 1)
   return (rslt1 ++
           [TACCmp src1 (TACLit 0),
@@ -229,12 +259,12 @@ ifElseToTAC name condition left right = do
   src1 <- getFst
   rslt2 <- stmtToTAC name left
   n <- getSnd
-  let elseStr = "else." ++ show n
+  let elseStr = name ++ ".else." ++ show n
   putSnd (n + 1)
   rslt3 <- stmtToTAC name right
   dst <- makeTemp name
   n' <- getSnd
-  let endStr = "end." ++ show n'
+  let endStr = name ++ ".end." ++ show n'
   put (dst, n' + 1)
   return (rslt1 ++
     [TACCmp src1 (TACLit 0),
@@ -302,7 +332,7 @@ relationalToTAC name op left right = do
   src2 <- getFst
   dst <- makeTemp name
   n <- getSnd
-  let endStr = "end." ++ show n
+  let endStr = name ++ ".end." ++ show n
   put (dst, n + 1)
   return ([TACCopy dst (TACLit 1)] ++
           rslt1 ++ rslt2 ++
@@ -323,7 +353,7 @@ exprToTAC name expr =
       src2 <- getFst
       dst <- makeTemp name
       n <- getSnd
-      let endStr = "end." ++ show n
+      let endStr = name ++ ".end." ++ show n
       put (dst, n + 1)
       return ([TACCopy dst (TACLit 0)] ++
         rslt1 ++
@@ -341,7 +371,7 @@ exprToTAC name expr =
       src2 <- getFst
       dst <- makeTemp name
       n <- getSnd
-      let endStr = "end." ++ show n
+      let endStr = name ++ ".end." ++ show n
       put (dst, n + 1)
       return ([TACCopy dst (TACLit 1)] ++
               rslt1 ++
@@ -389,12 +419,12 @@ exprToTAC name expr =
       src1 <- getFst
       rslt2 <- exprToTAC name left
       (src2, n) <- get
-      let elseStr = "else." ++ show n
+      let elseStr = name ++ ".else." ++ show n
       rslt3 <- exprToTAC name right
       src3 <- getFst
       dst <- makeTemp name
       n' <- getSnd
-      let endStr = "end." ++ show n'
+      let endStr = name ++ ".end." ++ show n'
       put (dst, n' + 1)
       return (rslt1 ++
         [TACCmp src1 (TACLit 0),

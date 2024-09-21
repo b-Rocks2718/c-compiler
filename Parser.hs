@@ -24,7 +24,9 @@ data ASTStmt = RetStmt ASTExpr
              | DoWhileStmt ASTStmt ASTExpr (Maybe String)
              | ForStmt ForInit (Maybe ASTExpr) (Maybe ASTExpr) ASTStmt (Maybe String)
              | NullStmt
-             -- future: | SwitchStmt ASTExpr ASTStmt
+             | SwitchStmt ASTExpr ASTStmt (Maybe String) (Maybe [CaseLabel])
+             | CaseStmt ASTExpr ASTStmt (Maybe String)
+             | DefaultStmt ASTStmt (Maybe String)
 
 data ASTExpr = Factor Factor
              | ASTBinary BinOp ASTExpr ASTExpr
@@ -39,6 +41,9 @@ data Factor = ASTLit Int
              | ASTVar String
              | FunctionCall String [ASTExpr]
              deriving (Eq)
+
+data CaseLabel = IntCase Int | DefaultCase
+  deriving (Show, Eq)
 
 data Declaration = VarDclr VariableDclr | FunDclr FunctionDclr
   deriving (Show)
@@ -161,6 +166,30 @@ showStatement n (ForStmt init condition end body label) =
   tabs ++ "    " ++ showMaybe end ++ ",\n" ++
   showStatement (n + 1) body ++ "\n" ++ tabs ++
   "    " ++ show label ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (SwitchStmt expr stmt label (Just cases)) =
+  tabs ++ "SwitchStmt(" ++ show expr ++ ",\n" ++
+  showStatement (n + 1) stmt ++ "\n" ++
+  tabs ++ show label ++ "\n" ++ tabs ++
+  "cases=\n" ++ 
+  intercalate "\n" ((\s -> tabs ++ "    " ++ s) . show <$> cases) ++
+  "\n" ++ tabs ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (SwitchStmt expr stmt label Nothing) =
+  tabs ++ "SwitchStmt(" ++ show expr ++ ",\n" ++
+  showStatement (n + 1) stmt ++ "\n" ++
+  tabs ++ show label ++ "\n" ++ tabs ++
+  "cases=Nothing)"
+  where tabs = replicate (4 * n) ' '
+showStatement n (CaseStmt expr stmt label) =
+  tabs ++ "CaseStmt(" ++ show expr ++ ",\n" ++
+  showStatement (n + 1) stmt ++ "\n" ++
+  tabs ++ show label ++ ")"
+  where tabs = replicate (4 * n) ' '
+showStatement n (DefaultStmt stmt label) =
+  tabs ++ "DefaultStmt(" ++ "\n" ++
+  showStatement (n + 1) stmt ++ "\n" ++
+  tabs ++ show label ++ ")"
   where tabs = replicate (4 * n) ' '
 
 showMaybe :: Show a => Maybe a -> String
@@ -356,7 +385,7 @@ parseStmt =
   ExprStmt <$> (parseExpr <* match Semi) <|>
   liftA3 IfStmt
     (match IfTok *> match OpenP *> parseExpr <* match CloseP)
-    parseStmt (maybeParse (match ElseTok *> parseStmt)) <|>
+    parseStmt (optional (match ElseTok *> parseStmt)) <|>
   liftA2 LabeledStmt (identName <$> satisfy isIdent <* match Colon) parseStmt <|>
   GoToStmt . identName <$> (match GoToTok *> satisfy isIdent <* match Semi) <|>
   CompoundStmt <$> parseBlock <|>
@@ -371,6 +400,9 @@ parseStmt =
     (optional parseExpr <* match Semi)
     (optional parseExpr <* match CloseP)
     parseStmt (pure Nothing) <|>
+  match SwitchTok *> lift4 SwitchStmt parseExpr parseStmt (pure Nothing) (pure Nothing) <|>
+  match CaseTok *> liftA3 CaseStmt (parseExpr <* match Colon) parseStmt (pure Nothing) <|>
+  match DefaultTok *> match Colon *> liftA2 DefaultStmt parseStmt (pure Nothing) <|>
   NullStmt <$ match Semi
 
 parseForInit :: Parser Token ForInit
@@ -386,7 +418,7 @@ parseVariableDclr :: Parser Token VariableDclr
 parseVariableDclr = do
   (type_, storageClass) <- parseTypeAndStorageClass
   name <- identName <$> satisfy isIdent
-  expr <- maybeParse (match Equals *> parseExpr) <* match Semi
+  expr <- optional (match Equals *> parseExpr) <* match Semi
   return (VariableDclr name storageClass expr)
 
 -- parses a type specifier or a storage class

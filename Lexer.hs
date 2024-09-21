@@ -42,10 +42,6 @@ instance Monad (Parser a) where
           Left s -> Left s
           Right (x, rest) -> runParser (k x) rest
 
--- always succeeds, result is Nothing when it can't parse
-maybeParse :: Parser a b -> Parser a (Maybe b)
-maybeParse p = pure <$> p <|> pure Nothing
-
 -- always fails, returns Left "error_msg"
 errorParse :: String -> Parser a b
 errorParse s = Parser $ const (Left s)
@@ -118,9 +114,9 @@ data Token = IntLit Int
            | Comma
            | StaticTok
            | ExternTok
-           -- future: | SwitchTok
-           -- future: | CaseTok
-           -- future: | DefaultTok
+           | SwitchTok
+           | CaseTok
+           | DefaultTok
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -209,9 +205,9 @@ lexToken = lexConstToken Void "void\\b" <|>
            lexConstToken Comma "," <|>
            lexConstToken StaticTok "static\\b" <|>
            lexConstToken ExternTok "extern\\b" <|>
-           --future: lexConstToken SwitchTok "switch" <|>
-           --future: lexConstToken CaseTok "case" <|>
-           --future: lexConstToken DefaultTok "default" <|>
+           lexConstToken SwitchTok "switch" <|>
+           lexConstToken CaseTok "case" <|>
+           lexConstToken DefaultTok "default" <|>
            lexIntLit <|>
            lexIdent
 

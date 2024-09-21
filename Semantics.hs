@@ -9,7 +9,7 @@ import Data.List ( foldl', deleteBy )
 import Data.List.Split
 import Control.Monad.State
 import Control.Monad (when)
-import Control.Applicative.HT (lift5)
+import Control.Applicative.HT (lift4, lift5)
 import Data.Bits
 import Data.Maybe
 
@@ -65,7 +65,9 @@ createLabelMap name item eMaps =
         WhileStmt _ stmt _ -> createLabelMap name (StmtBlock stmt) eMaps
         DoWhileStmt stmt _ _ -> createLabelMap name (StmtBlock stmt) eMaps
         ForStmt _ _ _ stmt _ -> createLabelMap name (StmtBlock stmt) eMaps
-
+        SwitchStmt _ stmt _ _ -> createLabelMap name (StmtBlock stmt) eMaps
+        CaseStmt _ stmt _ ->  createLabelMap name (StmtBlock stmt) eMaps
+        DefaultStmt stmt _ ->  createLabelMap name (StmtBlock stmt) eMaps
         _ -> eMaps -- other statements are not recursive
 
 resolveLabels :: String -> LabelMap -> FunctionDclr -> Either String FunctionDclr
@@ -113,70 +115,172 @@ resolveLabel name maps item =
         CompoundStmt <$> foldr (resolveBlockLabels name maps) (pure $ Block []) items
       WhileStmt expr stmt label -> liftA3 WhileStmt (pure expr) (resolveLabel name maps stmt) (pure label)
       DoWhileStmt stmt expr label -> liftA3 DoWhileStmt (resolveLabel name maps stmt) (pure expr) (pure label)
-      ForStmt init condition end stmt label -> 
+      ForStmt init condition end stmt label ->
         lift5 ForStmt (pure init) (pure condition) (pure end) (resolveLabel name maps stmt) (pure label)
+      SwitchStmt expr stmt label cases -> lift4 SwitchStmt (pure expr) (resolveLabel name maps stmt) (pure label) (pure cases)
+      CaseStmt expr stmt label -> liftA3 CaseStmt (pure expr) (resolveLabel name maps stmt) (pure label)
+      DefaultStmt stmt label -> liftA2 DefaultStmt (resolveLabel name maps stmt) (pure label)
       _ -> return item
 
 -------------------- Loop Labeling -----------------------------------
 
-labelStmt :: ASTStmt -> StateT (Maybe String, Int) (Either String) ASTStmt
-labelStmt stmt = case stmt of
+-- (Maybe String, Maybe String, Bool), Int
+-- Int is used for global counter
+-- fst Maybe String stores most recent enclosing loop label
+-- snd Maybe String stores most recent enclosing switch label
+-- Bool tracks what was more recent: True -> loop, False -> switch
+
+labelStmt :: String -> ASTStmt -> StateT ((Maybe String, Maybe String, Bool), Int) (Either String) ASTStmt
+labelStmt name stmt = case stmt of
   BreakStmt _ -> do
-    mLabel <- getFst
-    case mLabel of
-      Nothing -> lift (Left "Semantics Error: Break statement outside loop")
-      Just label -> return (BreakStmt mLabel)
+    (mLoopLabel, mSwitchLabel, b) <- getFst
+    if b
+      then case mLoopLabel of
+        Nothing -> lift (Left "Semantics Error: Break statement outside loop/switch")
+        Just label -> return (BreakStmt mLoopLabel)
+    else case mSwitchLabel of
+        Nothing -> lift (Left "Semantics Error: Break statement outside loop/switch")
+        Just label -> return (BreakStmt mSwitchLabel)
   ContinueStmt _ -> do
-    mLabel <- getFst
+    (mLabel, _, _) <- getFst
     case mLabel of
       Nothing -> lift (Left "Semantics Error: Continue statement outside loop")
       Just label -> return (ContinueStmt mLabel)
   WhileStmt condition body _ -> do
-    label <- makeUnique "while"
-    oldLabel <- getFst
-    putFst (Just label)
-    labeledBody <- labelStmt body
+    label <- makeUnique $ name ++ ".while"
+    oldLabel@(_, mSwitchLabel, _) <- getFst
+    putFst (Just label, mSwitchLabel, True)
+    labeledBody <- labelStmt name body
     putFst oldLabel
     return (WhileStmt condition labeledBody (pure label))
   DoWhileStmt body condition _ -> do
-    label <- makeUnique "doWhile"
-    oldLabel <- getFst
-    putFst (Just label)
-    labeledBody <- labelStmt body
+    label <- makeUnique $ name ++ ".doWhile"
+    oldLabel@(_, mSwitchLabel, _) <- getFst
+    putFst (Just label, mSwitchLabel, True)
+    labeledBody <- labelStmt name body
     putFst oldLabel
     return (DoWhileStmt labeledBody condition (pure label))
   ForStmt init condition end body _ -> do
-    label <- makeUnique "for"
-    oldLabel <- getFst
-    putFst (Just label)
-    labeledBody <- labelStmt body
+    label <- makeUnique $ name ++ ".for"
+    oldLabel@(_, mSwitchLabel, _) <- getFst
+    putFst (Just label, mSwitchLabel, True)
+    labeledBody <- labelStmt name body
     putFst oldLabel
     return (ForStmt init condition end labeledBody (pure label))
   IfStmt condition left right -> do
-    labeledLeft <- labelStmt left
-    labeledRight <- liftMaybe labelStmt right
+    labeledLeft <- labelStmt name left
+    labeledRight <- liftMaybe (labelStmt name) right
     return (IfStmt condition labeledLeft labeledRight)
   CompoundStmt block -> do
-    labeledBlock <- labelBlock block
+    labeledBlock <- labelBlock name block
     return (CompoundStmt labeledBlock)
   LabeledStmt s stmt -> do
-    labeledStmt <- labelStmt stmt
+    labeledStmt <- labelStmt name stmt
     return (LabeledStmt s labeledStmt)
+  CaseStmt expr stmt _ -> do
+    (_, mLabel, _) <- getFst
+    label <- case mLabel of
+      Nothing -> lift (Left "Semantics Error: Case statement outside switch")
+      Just l -> return l
+    labeledStmt <- labelStmt name stmt
+    n <- case expr of
+      Factor (ASTLit n) -> return n
+      _ -> error "Compiler Error: Case has none constant expr"
+    return (CaseStmt expr labeledStmt (Just $ label ++ "." ++ show n))
+  DefaultStmt stmt _ -> do
+    (_, mLabel, _) <- getFst
+    label <- case mLabel of
+      Nothing -> lift (Left "Semantics Error: Default statement outside switch")
+      Just l -> return l
+    labeledStmt <- labelStmt name stmt
+    return (DefaultStmt labeledStmt (Just $ label ++ ".default"))
+  SwitchStmt expr stmt label cases -> do
+    label <- makeUnique $ name ++ ".switch"
+    oldLabel@(mLoopLabel, _, _) <- getFst
+    putFst (mLoopLabel, Just label, False)
+    labeledBody <- labelStmt name stmt
+    putFst oldLabel
+    return (SwitchStmt expr labeledBody (pure label) cases)
   stmt -> return stmt
 
-labelBlockItem :: BlockItem -> StateT (Maybe String, Int) (Either String) BlockItem
-labelBlockItem item = case item of
+labelBlockItem :: String -> BlockItem ->
+    StateT ((Maybe String, Maybe String, Bool), Int) (Either String) BlockItem
+labelBlockItem name item = case item of
   StmtBlock stmt -> do
-    rslt <-labelStmt stmt
+    rslt <- labelStmt name stmt
     return (StmtBlock rslt)
   DclrBlock dclr -> return (DclrBlock dclr)
 
-labelBlock :: Block -> StateT (Maybe String, Int) (Either String) Block
-labelBlock (Block items) =  do
+labelBlock :: String -> Block -> StateT ((Maybe String, Maybe String, Bool), Int) (Either String) Block
+labelBlock name (Block items) =  do
     -- BlockItem ->
     --  StateT (Maybe String, Int) (Either String) [BlockItem] ->
     --  StateT (Maybe String, Int) (Either String) [BlockItem]
-    labeledItems <- foldr (liftA2 (:) . labelBlockItem)
+    labeledItems <- foldr (liftA2 (:) . labelBlockItem name)
+      (return []) items
+    return (Block labeledItems)
+
+-------------------- Finding Cases in Switch statement -------------------------------------
+
+collectCasesStmt :: ASTStmt -> StateT [CaseLabel] (Either String) ASTStmt
+collectCasesStmt stmt = case stmt of
+  WhileStmt condition body label -> do
+    newBody <- collectCasesStmt body
+    return (WhileStmt condition newBody label)
+  DoWhileStmt body condition label -> do
+    newBody <- collectCasesStmt body
+    return (DoWhileStmt newBody condition label)
+  ForStmt init condition end body label -> do
+    newBody <- collectCasesStmt body
+    return (ForStmt init condition end newBody label)
+  IfStmt condition left right -> do
+    newLeft <- collectCasesStmt left
+    newRight <- liftMaybe collectCasesStmt right
+    return (IfStmt condition newLeft newRight)
+  CompoundStmt block -> do
+    newBlock <- collectCaseBlock block
+    return (CompoundStmt newBlock)
+  LabeledStmt s stmt -> do
+    newStmt <- collectCasesStmt stmt
+    return (LabeledStmt s newStmt)
+  CaseStmt expr stmt label -> do
+    cases <- get
+    case expr of
+      (Factor (ASTLit n)) -> if IntCase n `elem` cases
+        then lift (Left "Semantics Error: Duplicate cases")
+        else put $ cases ++ [IntCase n]
+      _ -> error "Compiler Error: Case expr was not converted to lit"
+    newStmt <- collectCasesStmt stmt
+    return (CaseStmt expr newStmt label)
+  DefaultStmt stmt label -> do
+    cases <- get
+    if DefaultCase `elem` cases
+      then lift (Left "Semantics Error: Duplicate default cases")
+      else put $ cases ++ [DefaultCase]
+    newStmt <- collectCasesStmt stmt
+    return (DefaultStmt newStmt label)
+  SwitchStmt expr stmt label cases -> do
+    oldCases <- get
+    put []
+    newStmt <- collectCasesStmt stmt
+    rslt <- get
+    put oldCases
+    return (SwitchStmt expr newStmt label (Just rslt))
+  stmt -> return stmt
+
+collectCaseBlockItem :: BlockItem -> StateT [CaseLabel] (Either String) BlockItem
+collectCaseBlockItem item = case item of
+  StmtBlock stmt -> do
+    rslt <- collectCasesStmt stmt
+    return (StmtBlock rslt)
+  DclrBlock dclr -> return (DclrBlock dclr)
+
+collectCaseBlock :: Block -> StateT [CaseLabel] (Either String) Block
+collectCaseBlock (Block items) =  do
+    -- BlockItem ->
+    --  StateT (Maybe String, Int) (Either String) [BlockItem] ->
+    --  StateT (Maybe String, Int) (Either String) [BlockItem]
+    labeledItems <- foldr (liftA2 (:) . collectCaseBlockItem)
       (return []) items
     return (Block labeledItems)
 
@@ -348,6 +452,11 @@ typecheckStmt stmt = case stmt of
     liftMaybe typecheckExpr mExpr1
     liftMaybe typecheckExpr mExpr2
     typecheckStmt stmt
+  SwitchStmt expr stmt _ _ -> do
+    typecheckExpr expr
+    typecheckStmt stmt
+  CaseStmt _ stmt _ -> typecheckStmt stmt
+  DefaultStmt stmt _ -> typecheckStmt stmt
   NullStmt -> return ()
 
 typecheckForInit :: ForInit -> StateT SymbolTable (Either String) ()
@@ -473,7 +582,7 @@ exprToBool :: ASTExpr -> Maybe Bool
 exprToBool expr = isConst expr >>= (\x -> if x /= 0 then pure True else pure False)
 
 showSymbols :: Either String SymbolTable -> String
-showSymbols (Right symbols) = 
+showSymbols (Right symbols) =
   symbols >>= (\(ident, attrs) -> show ident ++ ": " ++ show attrs ++ "\n")
 showSymbols (Left msg) = msg
 
@@ -520,13 +629,17 @@ resolveFileScopeFunc (FunctionDclr name storageClass params body) = do
   let labeledLoops = do
         (FunctionDclr newName mStorage newParams newBody) <- resolvedFunc
         FunctionDclr newName mStorage newParams <$>
-          evalStateT (liftMaybe labelBlock newBody) (Nothing, 0)
+          evalStateT (liftMaybe (labelBlock name) newBody) ((Nothing, Nothing, False), 0)
       resolvedLabels = do
         rslt <- labeledLoops
         -- labels are specific to each function, so they're resolved here
         maps <- createLabelMaps name rslt
         resolveLabels name maps rslt
-  lift resolvedLabels
+      resolvedSwitches = do
+        (FunctionDclr newName mStorage newParams newBody) <- resolvedLabels
+        FunctionDclr newName mStorage newParams <$>
+          evalStateT (liftMaybe collectCaseBlock newBody) []
+  lift resolvedSwitches
 
 resolveLocalFunc :: FunctionDclr -> MapState FunctionDclr
 resolveLocalFunc (FunctionDclr name mStorage params body) = do
@@ -618,6 +731,16 @@ resolveStmt stmt = case stmt of
     rsltBody <- resolveStmt body
     putFst maps
     return (ForStmt rsltInit rsltCondition rsltEnd rsltBody label)
+  SwitchStmt expr block label cases -> do
+    rsltExpr <- resolveExpr expr
+    rsltStmt <- resolveStmt block
+    return (SwitchStmt rsltExpr rsltStmt label cases)
+  CaseStmt expr stmt label -> do
+    n <- case isConst expr of
+      Just m -> return m
+      Nothing -> lift (Left "Semantics Error: Case has non-constant value")
+    liftA3 CaseStmt (pure . Factor $ ASTLit n) (resolveStmt stmt) (pure label)
+  DefaultStmt stmt label -> liftA2 DefaultStmt (resolveStmt stmt) (pure label)
   NullStmt -> return NullStmt
 
 resolveInit :: ForInit -> MapState ForInit
