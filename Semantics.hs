@@ -503,9 +503,7 @@ typecheckExpr e = case e of
   ASTAssign left right -> do
     typecheckExpr left
     typecheckExpr right
-  ASTPostAssign left right -> do
-    typecheckExpr left
-    typecheckExpr right
+  ASTPostAssign expr _ -> typecheckExpr expr
   Conditional c left right -> do
     typecheckExpr c
     typecheckExpr left
@@ -559,7 +557,7 @@ isConst expr = case expr of
   ASTBinary BoolGe left right -> boolToInt <$> liftA2 (>) (exprToBool left) (exprToBool right)
   ASTBinary BoolLeq left right -> boolToInt <$> liftA2 (<=) (exprToBool left) (exprToBool right)
   ASTBinary BoolGeq left right -> boolToInt <$> liftA2 (>=) (exprToBool left) (exprToBool right)
-  ASTBinary _ _ _ -> Nothing
+  ASTBinary op _ _ -> Nothing
   ASTAssign _ _ -> Nothing
   ASTPostAssign _ _ -> Nothing
   Conditional c trueExpr falseExpr ->
@@ -829,11 +827,10 @@ resolveExpr expr = case expr of
       rsltRight <- resolveExpr right
       return (ASTAssign rsltLeft rsltRight)
     _ -> lift (Left "Semantics Error: Invalid lvalue")
-  ASTPostAssign left right -> case left of
+  ASTPostAssign expr op -> case expr of
     (Factor (ASTVar name)) -> do
-      rsltLeft <- resolveExpr left
-      rsltRight <- resolveExpr right
-      return (ASTPostAssign rsltLeft rsltRight)
+      rsltExpr <- resolveExpr expr
+      return (ASTPostAssign rsltExpr op)
     _ -> lift (Left "Semantics Error: Invalid lvalue")
   ASTBinary op left right -> do
     rsltLeft <- resolveExpr left

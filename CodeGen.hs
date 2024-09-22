@@ -123,6 +123,7 @@ toMachineInstr name instr =
             AsmBinary ModOp _ _ _ -> [Call "mod"]
             AsmBinary BitShl _ _ _ -> [Call "left_shift"]
             AsmBinary BitShr _ _ _ -> [Call "right_shift"]
+            --AsmBinary PlusEqOp _ _ _ -> [Add R3 R3 R4]
             AsmJump s -> [Movi R3 (ImmLabel s), Jalr R0 R3] -- will optimize later
             AsmCondJump CondE s -> [Bz s]
             AsmCondJump CondNE s -> [Bnz s]

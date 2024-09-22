@@ -383,37 +383,38 @@ exprToTAC name expr =
               TACCopy dst (TACLit 0),
               TACLabel endStr])
     -- relational operators (probably should rewrite)
-    (ASTBinary BoolEq left right) -> relationalToTAC name BoolEq left right
-    (ASTBinary BoolNeq left right) -> relationalToTAC name BoolNeq left right
-    (ASTBinary BoolGe left right) -> relationalToTAC name BoolGe left right
-    (ASTBinary BoolGeq left right) -> relationalToTAC name BoolGeq left right
-    (ASTBinary BoolLe left right) -> relationalToTAC name BoolLe left right
-    (ASTBinary BoolLeq left right) -> relationalToTAC name BoolLeq left right
-    -- arithmetic operators (single instruction)
-    -- could move mul/div/mod from a function call to here
-    (ASTBinary op left right) -> do
-      rslt1 <- exprToTAC name left
-      src1 <- getFst
-      --dst1 <- makeTemp name
-      rslt2 <- exprToTAC name right
-      src2 <- getFst
-      dst2 <- makeTemp name
-      putFst dst2 -- possible optimization: use dst1
-      return (rslt1 ++ rslt2 ++ [TACBinary op dst2 src1 src2])
-    (ASTAssign (Factor (ASTVar v)) right) -> do
+    (ASTBinary op left right) -> if op `elem` relationalOps
+      then relationalToTAC name BoolEq left right
+      else if op `elem` compoundOps
+        then do
+          rslt1 <- exprToTAC name left
+          src1 <- getFst
+          rslt2 <- exprToTAC name right
+          src2 <- getFst
+          putFst src1 -- compound op stores result back in src1
+          return (rslt1 ++ rslt2 ++ [TACBinary (getCompoundOp op) src1 src1 src2])
+      else do
+        rslt1 <- exprToTAC name left
+        src1 <- getFst
+        --dst1 <- makeTemp name
+        rslt2 <- exprToTAC name right
+        src2 <- getFst
+        dst2 <- makeTemp name -- non compound op makes new variable for result
+        putFst dst2 -- possible optimization: use dst1
+        return (rslt1 ++ rslt2 ++ [TACBinary op dst2 src1 src2])
+    (ASTAssign (Factor (ASTVar v)) expr) -> do
       -- possible optimization: remove the Copy here, pass dst to expr function
-      rslt <- exprToTAC name right
+      rslt <- exprToTAC name expr
       src <- getFst
       let dst = TACVar v
       putFst dst
       return (rslt ++ [TACCopy dst src])
-    (ASTPostAssign (Factor (ASTVar v)) right) -> do
-      rslt <- exprToTAC name right
-      src <- getFst
+    (ASTPostAssign (Factor (ASTVar v)) op) -> do
+      let src = TACVar v
       oldVal <- makeTemp name
-      let dst = TACVar v
       putFst oldVal
-      return ([TACCopy oldVal dst] ++ rslt ++ [TACCopy dst src])
+      let binOp = if op == PostInc then AddOp else SubOp
+      return [TACCopy oldVal src, TACBinary binOp src src (TACLit 1)]
     (Conditional condition left right) -> do
       rslt1 <- exprToTAC name condition
       src1 <- getFst
