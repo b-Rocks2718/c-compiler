@@ -117,6 +117,9 @@ data Token = IntLit Int
            | SwitchTok
            | CaseTok
            | DefaultTok
+           | UnsignedTok
+           | SignedTok
+           | UnsignedLit Int
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -146,6 +149,9 @@ lexEOF = spaces *> Parser f
 
 lexIntLit :: Parser Char Token
 lexIntLit = IntLit . read <$> lexRegex "[0-9]+\\b"
+
+lexUIntLit :: Parser Char Token
+lexUIntLit = UnsignedLit . read . init <$> lexRegex "[0-9]+[uU]\\b"
 
 lexIdent :: Parser Char Token
 lexIdent = Ident <$> lexRegex "[a-zA-Z_]\\w*\\b"
@@ -205,9 +211,12 @@ lexToken = lexConstToken Void "void\\b" <|>
            lexConstToken Comma "," <|>
            lexConstToken StaticTok "static\\b" <|>
            lexConstToken ExternTok "extern\\b" <|>
-           lexConstToken SwitchTok "switch" <|>
-           lexConstToken CaseTok "case" <|>
-           lexConstToken DefaultTok "default" <|>
+           lexConstToken SwitchTok "switch\\b" <|>
+           lexConstToken CaseTok "case\\b" <|>
+           lexConstToken DefaultTok "default\\b" <|>
+           lexConstToken UnsignedTok "unsigned\\b" <|>
+           lexConstToken SignedTok "signed\\b" <|>
+           lexUIntLit <|>
            lexIntLit <|>
            lexIdent
 

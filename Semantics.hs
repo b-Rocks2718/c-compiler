@@ -286,8 +286,6 @@ collectCaseBlock (Block items) =  do
 
 -------------------- Type Checking -------------------------------------
 
-data Type_ = IntType | FunType Int -- param count
-  deriving (Show, Eq)
 type SymbolTable = [(String, (Type_, IdentAttrs))]
 
 data IdentAttrs = FunAttr Bool Bool -- FunAttr defined global

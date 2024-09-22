@@ -61,6 +61,9 @@ data FunctionDclr = FunctionDclr String (Maybe StorageClass) [VariableDclr] (May
 data VariableDclr = VariableDclr String (Maybe StorageClass) (Maybe ASTExpr)
   deriving (Show)
 
+data Type_ = IntType | UnsignedType | FunType Int -- param count
+  deriving (Show, Eq)
+
 data ForInit = InitDclr VariableDclr | InitExpr (Maybe ASTExpr)
   deriving (Show)
 
@@ -505,16 +508,6 @@ parseBinExpand parser minPrec =
         if op == AssignOp then do
           right <- parseBin (Factor <$> parseFactor) nextPrec
           return . Just $ ASTAssign left right
-        --else if op == PlusEqOp then parseCompoundAssign nextPrec AddOp left
-        --else if op == MinusEqOp then parseCompoundAssign nextPrec SubOp left
-        --else if op == TimesEqOp then parseCompoundAssign nextPrec MulOp left
-        --else if op == DivEqOp then parseCompoundAssign nextPrec DivOp left
-        --else if op == ModEqOp then parseCompoundAssign nextPrec ModOp left
-        --else if op == AndEqOp then parseCompoundAssign nextPrec BitAnd left
-        --else if op == OrEqOp then parseCompoundAssign nextPrec BitOr left
-        --else if op == XorEqOp then parseCompoundAssign nextPrec BitXor left
-        --else if op == ShlEqOp then parseCompoundAssign nextPrec BitShl left
-        --else if op == ShrEqOp then parseCompoundAssign nextPrec BitShr left
         else if op == TernaryOp then do
           middle <- parseExpr <* match Colon
           right <- parseBin (Factor <$> parseFactor) nextPrec

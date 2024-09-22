@@ -382,9 +382,8 @@ exprToTAC name expr =
               TACCondJump CondNE endStr,
               TACCopy dst (TACLit 0),
               TACLabel endStr])
-    -- relational operators (probably should rewrite)
     (ASTBinary op left right) -> if op `elem` relationalOps
-      then relationalToTAC name BoolEq left right
+      then relationalToTAC name op left right
       else if op `elem` compoundOps
         then do
           rslt1 <- exprToTAC name left
