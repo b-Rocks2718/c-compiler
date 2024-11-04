@@ -31,7 +31,6 @@ terminal_index:
   .fill 0x8000
 
 PUTCHAR:
-	# 10 = newline TODO: handle this
 
   	# overwrites cr2, cr3, cr4, cr5
 

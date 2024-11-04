@@ -14,7 +14,7 @@ data LoopLabelState = LoopLabelState {
 }
 
 labelLoops :: Declaration -> Result Declaration
-labelLoops dclr = 
+labelLoops dclr =
   case dclr of
     FunDclr (FunctionDclr name type_ mStorage params body) -> do
       FunDclr . FunctionDclr name type_ mStorage params <$>
@@ -77,7 +77,7 @@ labelStmt name stmt = case stmt of
     n <- case expr of
       Factor (Lit n) -> return n
       _ -> error "Compiler Error: Case has none constant expr"
-    return (CaseStmt expr labeledStmt (Just $ label ++ "." ++ show n))
+    return (CaseStmt expr labeledStmt (Just $ label ++ "." ++ show (getConstInt n)))
   DefaultStmt stmt' _ -> do
     LoopLabelState {prevSwitchLabel} <- getFst
     label <- case prevSwitchLabel of
