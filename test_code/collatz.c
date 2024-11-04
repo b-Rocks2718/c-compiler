@@ -1,26 +1,56 @@
-int next_collatz(int x){
-  if (x & 1){
-    x = 3 * x + 1;
-  } else {
-    x >>= 1;
+unsigned ZERO_CHAR = 48;
+
+unsigned putchar (unsigned c);
+
+unsigned print_unisgned(unsigned x){
+  unsigned d = x % 10;
+  x = x / 10;
+  if (x != 0){
+    print_unisgned(x);
   }
-  return x;
+  putchar(ZERO_CHAR + d);
 }
 
-int max(int a, int b){
-  if (a > b){
-    return a;
+unsigned collatz(unsigned x){
+  if (x & 1){
+    // if x is odd, return 3*x + 1
+    return x + x + x + 1;
   } else {
-    return b;
+    // if x is even, return x/2
+    return x >> 1;
   }
 }
 
 int main(void) {
-  int x = 121;
-  int max_val = x;
+  unsigned x = 121;
+  unsigned max = x;
+  unsigned i = 0;
+
+  putchar(67); // C
+  putchar(111); // o
+  putchar(108); // l
+  putchar(108); // l
+  putchar(97); // a
+  putchar(116); // t
+  putchar(122); // z
+  putchar(58); // :
+  putchar(10); // \n
+  
+
   while (x != 1){
-    x = next_collatz(x);
-    max_val = max(max_val, x);
+    print_unisgned(x);
+    putchar(44); // ,
+    x = collatz(x);
+    if (x > max) max = x;
+    ++i;
   }
-  return max_val;
+  print_unisgned(x);
+  putchar(10); //\n
+  putchar(10); //\n
+  putchar(77); // M
+  putchar(97); // a
+  putchar(120); // x
+  putchar(58); // :
+  putchar(32); // space
+  print_unisgned(max);
 }

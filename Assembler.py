@@ -9,7 +9,8 @@ valid_commands = ["add", "addi", "addc", "sub",
                   "sys", "mov", "tocr", 
                   "fmcr", "bz", "bne", "beq",
                   "bp", "bo", "bn", "bc", 
-                  "bnz", "movi", ".fill", ".space",
+                  "bnz", "ba", "bae", "bb", "bbe", 
+                  "movi", ".fill", ".space",
                   "jmp", "rfe", "rfi", "push", "pop", "clf",
                   "kpsh", "kpop", "bnc", "call", 
                   "bg", "bge", "bl", "ble"]
@@ -65,6 +66,10 @@ instruction_dict = {
     "bge" : "110",
     "bl"  : "110",
     "ble" : "110",
+    "ba"  : "110",
+    "bae" : "110",
+    "bb"  : "110",
+    "bbe" : "110",
     "clf" : "000",
 }
 
@@ -102,7 +107,11 @@ branch_dict = {
     "bg"  : "001000",
     "bge" : "001001",
     "bl"  : "001010",
-    "ble" : "001011"
+    "ble" : "001011",
+    "ba"  : "001100",
+    "bae" : "001101",
+    "bb"  : "001110",
+    "bbe" : "001111"
 }
 
 exception_dict = { 
@@ -455,11 +464,11 @@ def assemble(names, tracked_labels):
         if tokens != []:
             if tokens[0][0] == '#':
                 continue
-            if tokens[0][:-1] not in labels:
-                opcode = generate_opcode(line_num, tokens, labels, label_addresses, address)
+            if tokens[0][:-1] in labels and tokens[0][:-1] == ':':
+                opcode = generate_opcode(line_num, tokens[1:], labels, label_addresses, address)
                 address += num_bytes(tokens, line_num + 1)
             elif len(tokens) != 1:
-                opcode = generate_opcode(line_num, tokens[1:], labels, label_addresses, address)
+                opcode = generate_opcode(line_num, tokens, labels, label_addresses, address)
                 address += num_bytes(tokens, line_num + 1)
             if opcode != "":
                 file_lines.append(opcode)
@@ -497,13 +506,13 @@ def assemble(names, tracked_labels):
 def assemble_to_binary(names, tracked_labels = []):
     # generate machine code file
     assemble(names, tracked_labels)
-    assemble(["test_code/os.s"], tracked_labels)
+    assemble(["asm_libraries/os.s"], tracked_labels)
     # make output filename from input
     file_name = names[0].split('.')[0] + ".bin"
 
     # open file
     input_file = open(names[0].split('.')[0] + ".out", 'r')
-    os_file = open("test_code/os.out", 'r')
+    os_file = open("asm_libraries/os.out", 'r')
 
     f = open(file_name, 'wb')
 

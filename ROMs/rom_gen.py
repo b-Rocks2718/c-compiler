@@ -47,6 +47,22 @@ for address in range(2 ** 10):
           (bool(flags & 4) != bool(flags & 8) or flags & 2)):
         # ble
         branch_data.append(1)
+    elif (opdata == 12 and
+          (not flags & 2 and flags & 1)):
+        # ba
+        branch_data.append(1)
+    elif (opdata == 13 and
+          (flags & 1)):
+        # bae (same as bc), can optimize in the future
+        branch_data.append(1)
+    elif (opdata == 14 and
+          (not flags & 1)):
+        # bb
+        branch_data.append(1)
+    elif (opdata == 15 and
+          (flags & 2 or not flags & 1)):
+        # bbe
+        branch_data.append(1)
     else:
         branch_data.append(0)
 
