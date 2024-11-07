@@ -1,3 +1,8 @@
 dist-newstyle/*
 test_code/os.out
 test_code/test.bin
+
+
+# Added by cargo
+
+/target

@@ -101,44 +101,43 @@ for address in range(2 ** 7):
             alu_data.append(0xC8)
             alu_data.append(0)
         elif opdata == 6:
-            # sub
+            # sub, cmp
             alu_data.append(0x83)
             alu_data.append(0x04)
         elif opdata == 7:
-            # cmp
-            # alu_data.append(0xC6) ????
-            alu_data.append(0x83)
-            alu_data.append(0x04)
-        elif opdata == 8:
             # xor
             alu_data.append(0xC5)
             alu_data.append(0)
-        elif opdata == 9:
+        elif opdata == 8:
             # not
+            alu_data.append(0x83)
+            alu_data.append(0x04)
+        elif opdata == 9:
+            # shl
             alu_data.append(0x60)
             alu_data.append(0)
         elif opdata == 10:
-            # shl
+            # shr
             alu_data.append(0x00)
             alu_data.append(0x2)
         elif opdata == 11:
-            # shr
+            # rotl
             alu_data.append(0x50)
             alu_data.append(0)
         elif opdata == 12:
-            # rotl
+            # rotr
             alu_data.append(0x00)
             alu_data.append(0x3)
         elif opdata == 13:
-            # rotr
+            # sshr
             alu_data.append(0)
             alu_data.append(0x1)
         elif opdata == 14:
-            # shlc
+            # shrc
             alu_data.append(0)
             alu_data.append(0)
         elif opdata == 15:
-            # shrc
+            # shlc
             alu_data.append(0x40)
             alu_data.append(0)
         else:

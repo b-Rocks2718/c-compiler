@@ -232,7 +232,7 @@ def generate_opcode(line_num, tokens, labels, label_addresses, address):
             opcode += alu_dict[operation]
             opcode += format(int(tokens[3][1]), 'b').zfill(3)
         elif operation in rr_type:
-            assert len(tokens) == 3, f"Error in line {line_num + 1}. RR type operation takes 3 parameters"
+            assert len(tokens) == 3, f"Error in line {line_num + 1}. RR type operation takes 2 parameters"
             assert is_reg(tokens[1]), f"Error in line {line_num + 1}. Valid register names are r0, r1, ..., r7"
             assert is_reg(tokens[2]), f"Error in line {line_num + 1}. Valid register names are r0, r1, ..., r7"
             opcode += format(int(tokens[1][1]), 'b').zfill(3)
@@ -289,7 +289,7 @@ def generate_opcode(line_num, tokens, labels, label_addresses, address):
             opcode += format(int(tokens[2][1]), 'b').zfill(3)
             opcode += "0100001"
         elif operation == "fmcr":
-            assert len(tokens) == 3, f"Error in line {line_num + 1}: 'tocr' takes 2 arguments"
+            assert len(tokens) == 3, f"Error in line {line_num + 1}: 'fmcr' takes 2 arguments"
             assert is_reg(tokens[1]), f"Error in line {line_num + 1}: Valid register names are r0, r1, ..., r7"
             assert is_reg(tokens[2]), f"Error in line {line_num + 1}: Valid register names are r0, r1, ..., r7"
             opcode += format(int(tokens[1][1]), 'b').zfill(3)
@@ -332,13 +332,13 @@ def generate_opcode(line_num, tokens, labels, label_addresses, address):
         elif operation == ".fill":
             assert len(tokens) == 2, f"Error in line {line_num + 1}: .fill takes one argument"
             opcode += get_imm(line_num, tokens[1], 16, 0, labels, label_addresses)
-        elif operation == ".space":
-            assert len(tokens) == 2, f"Error in line {line_num + 1}: .space takes one argument"
-            assert tokens[1].isnumeric(), f"Error in line {line_num + 1}: .space takes an integer argument"
-            n = int(tokens[1])
-            for _ in range(n):
-                opcode += "0000\n"
-                return opcode
+        #elif operation == ".space":
+        #    assert len(tokens) == 2, f"Error in line {line_num + 1}: .space takes one argument"
+        #    assert tokens[1].isnumeric(), f"Error in line {line_num + 1}: .space takes an integer argument"
+        #    n = int(tokens[1])
+        #    for _ in range(n):
+        #        opcode += "0000\n"
+        #        return opcode
         elif operation == "kpsh":
             # dec sp, then store
             assert len(tokens) == 2, f"Error in line {line_num + 1}: push takes one argument"
@@ -503,28 +503,32 @@ def assemble(names, tracked_labels):
 
 # names[0] is main
 # names[1:] are libraries to include       
-def assemble_to_binary(names, tracked_labels = []):
+def assemble_to_binary(names, emu, tracked_labels = []):
+
+    bytes_list = []
+
+    # the simulation requires the os code, but not the emulator
+    if not emu:
+      assemble(["asm_libraries/os.s"], tracked_labels)
+      os_file = open("asm_libraries/os.out", 'r')
+      for line in os_file.readlines():
+          value = int(line, 16)
+          upper_byte = value & 0b1111_1111_0000_0000
+          upper_byte = upper_byte >> 8
+          lower_byte = value & 0b0000_0000_1111_1111
+          bytes_list.append(lower_byte)
+          bytes_list.append(upper_byte)
+    
     # generate machine code file
     assemble(names, tracked_labels)
-    assemble(["asm_libraries/os.s"], tracked_labels)
+    
     # make output filename from input
     file_name = names[0].split('.')[0] + ".bin"
 
     # open file
     input_file = open(names[0].split('.')[0] + ".out", 'r')
-    os_file = open("asm_libraries/os.out", 'r')
 
     f = open(file_name, 'wb')
-
-    bytes_list = []
-
-    for line in os_file.readlines():
-        value = int(line, 16)
-        upper_byte = value & 0b1111_1111_0000_0000
-        upper_byte = upper_byte >> 8
-        lower_byte = value & 0b0000_0000_1111_1111
-        bytes_list.append(lower_byte)
-        bytes_list.append(upper_byte)
 
     for line in input_file.readlines():
         value = int(line, 16)
@@ -540,4 +544,9 @@ def assemble_to_binary(names, tracked_labels = []):
     f.close()
 
 if __name__ == "__main__":
-    assemble_to_binary(sys.argv[1:])
+    args = sys.argv[1:]
+    emu = False # whether we're compiling for the emulator or the simulation
+    if "--emu" in args:
+        args.remove("--emu")
+        emu = True
+    assemble_to_binary(args, emu)
