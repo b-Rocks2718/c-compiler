@@ -1,4 +1,5 @@
 import sys
+import os
 
 valid_commands = ["add", "addi", "addc", "sub",
                   "subc", "and", "or", "xor",
@@ -546,7 +547,7 @@ def assemble_to_binary(names, emu, tracked_labels = []):
 if __name__ == "__main__":
     args = sys.argv[1:]
     emu = False # whether we're compiling for the emulator or the simulation
-    if "--emu" in args:
-        args.remove("--emu")
+    if "-emu" in args:
+        args.remove("-emu")
         emu = True
     assemble_to_binary(args, emu)

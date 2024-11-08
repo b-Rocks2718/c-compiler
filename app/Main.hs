@@ -1,6 +1,6 @@
 module Main where
 
-import Utils ( Parser(runParser), liftA2, writeResult, showErr, splitOn)
+import Utils ( Parser(runParser), liftA2, writeResult, showErr, splitOn, Result (Err, Ok))
 import Preprocessor ( preprocess )
 import Lexer ( lexProg, showTokens )
 import Parser ( parseProg )
@@ -14,7 +14,7 @@ import System.Environment ( getArgs )
 
 -- run all the compiler stages and write the result
 
-main :: IO ()
+main :: IO Int
 main = do
   args <- getArgs
   let path = case args of
@@ -24,24 +24,24 @@ main = do
   content <- readFile path
   let processed = preprocess content
   let tokens = lexProg processed
-  when ("--tokens" `elem` flags) $ do
+  when ("-tokens" `elem` flags) $ do
     putStrLn ("\nTokens:\n" ++ showTokens tokens)
   let ast = tokens >>= (runParser parseProg . fst)
-  when ("--ast" `elem` flags) $ do
+  when ("-ast" `elem` flags) $ do
     putStrLn ("\nSyntax tree:\n" ++ show (fst <$> ast))
   let resolved = ast >>= resolve . fst
   let symbols = fst <$> resolved
-  when ("--semantics" `elem` flags) $ do
+  when ("-semantics" `elem` flags) $ do
     putStrLn ("\nResolved tree:\n" ++ show (snd <$> resolved))
     putStrLn ("\nSymbol Table:\n" ++ showSymbols symbols)
   let tacRslt = uncurry progToTAC <$> resolved
       tac = snd <$> tacRslt
       tacSymbols = fst <$> tacRslt
-  when ("--tac" `elem` flags) $ do
+  when ("-tac" `elem` flags) $ do
     putStrLn ("\nTAC:\n" ++ show tac)
     putStrLn ("\nSymbol Table:\n" ++ showSymbols tacSymbols)
   let asm = liftA2 progToAsm tac symbols
-  when ("--asm" `elem` flags) $ do
+  when ("-asm" `elem` flags) $ do
     putStrLn ("\nAsmAST:\n" ++ show asm)
   let asm' = progToMachine <$> asm
   let code = unlines . fmap asmToStr <$> asm'
@@ -49,3 +49,6 @@ main = do
   let fileName = head $ splitOn "." path
   let asmFile = fileName ++ ".s"
   writeResult asmFile code
+  case code of
+    Err _ -> return 1
+    Ok _ -> return 0

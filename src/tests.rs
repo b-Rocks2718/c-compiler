@@ -257,3 +257,10 @@ fn bbe_test() {
   let result = cpu.run();
   assert_eq!(result, 0);
 }
+
+#[test]
+fn collatz_test() {
+  let mut cpu = Emulator::new(String::from("src/emu_tests/bin/collatz_test.bin"));
+  let result = cpu.run();
+  assert_eq!(result, 9232);
+}
