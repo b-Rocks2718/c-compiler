@@ -123,6 +123,8 @@ parseTypeAndStorageClass = do
   (types, storageClasses) <- parseTypesAndStorageClasses
   if hasDuplicates types then
     errorParse $ "Duplicate type specifiers: " ++ show types
+  else if null types then
+    errorParse "Declaration has no type"
   else if SIntSpec `elem` types && UIntSpec `elem` types then
     errorParse $ "Invalid type specifiers: " ++ show types
   else if length storageClasses > 1 then
