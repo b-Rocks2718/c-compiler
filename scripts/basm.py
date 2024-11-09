@@ -52,7 +52,7 @@ if __name__ == "__main__":
     if "-run" in args:
         # run the emulator
         os.system("cargo run -- " + binfile)
-    else:
+    elif "-emu" not in args:
         # copy files to windows side so they can be run by the simulation
         os.system("cp ~/c-compiler/ROMs/*.bin /mnt/c/Users/brook/risc16")
         os.system("cp " + binfile + " /mnt/c/Users/brook/risc16/test.bin")
