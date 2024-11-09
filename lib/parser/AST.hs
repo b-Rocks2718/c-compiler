@@ -179,7 +179,8 @@ showFunc n (FunctionDclr name type_ storageClass params (Just (Block body))) =
   tabs ++ "FunctionDef(\n" ++ tabs ++ "    name=\"" ++ name ++ "\",\n" ++
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
-  tabs ++ "    params=" ++ show params ++ "\n"++
+  tabs ++ "    params=[\n" ++ concatMap (showVar $ n + 2) params ++ "\n"++
+  tabs ++ "    ]\n" ++
   tabs ++ "    body=[\n" ++
   unlines (showBlockItem (n + 1) <$> body) ++
   tabs ++ "    ]\n" ++
@@ -188,7 +189,8 @@ showFunc n (FunctionDclr name type_ storageClass params (Just (Block body))) =
 showFunc n (FunctionDclr name type_ storageClass params Nothing) =
   tabs ++ "FunctionDclr(\n" ++ tabs ++ "    name=\"" ++ name ++ "\",\n" ++
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
-  tabs ++ "    params=" ++ show params ++ "\n" ++
+  tabs ++ "    params=[\n" ++ concatMap (showVar $ n + 2) params ++ "\n"++
+  tabs ++ "    ]\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
   tabs ++ ")"
   where tabs = replicate (4 * n) ' '
