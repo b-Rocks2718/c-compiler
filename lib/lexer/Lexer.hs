@@ -138,6 +138,7 @@ lexToken = -- keywords
            lexConstToken Asterisk "\\*" <|>
            lexConstToken DivEq "/=" <|>
            lexConstToken Slash "/" <|>
+           lexConstToken ModEq "\\%=" <|>
            lexConstToken Percent "\\%" <|>
            lexConstToken DecTok "--" <|>
            lexConstToken MinusEq "-=" <|>

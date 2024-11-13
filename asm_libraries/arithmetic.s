@@ -179,7 +179,7 @@ rs_loop: # repeated shift
 	cmp r4 r0
 	bz rs_end
 	addi r4 r4 -1
-	shr r3 r3
+	sshr r3 r3
 	jmp rs_loop
 rs_end:
 	lw r5 r1 -1 # pop registers

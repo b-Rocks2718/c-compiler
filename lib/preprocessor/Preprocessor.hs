@@ -16,8 +16,9 @@ removeComments regex s
 -- so newlines are removed here
 
 -- inline comments (//) are removed first while newlines are still there
+-- directives beginning with # are ignored for now
 -- then newlines are removed
 -- then multi line (/* */) comments can be removed
 preprocess :: String -> String
 preprocess = removeComments "/\\*([^*]|\\*+[^/])*\\*+/" .
-             unwords . lines . removeComments "//.*$"
+             unwords . lines . removeComments "//.*$" . removeComments "#.*$"

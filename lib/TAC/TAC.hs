@@ -17,7 +17,7 @@ import AST(
   PostOp(..),
   CaseLabel(..),
   compoundOps,
-  relationalOps)
+  relationalOps, UnaryOp (BoolNot))
 import ParserUtils(getCompoundOp)
 import TACAST
 
@@ -270,6 +270,20 @@ factorToTAC name factor =
     (TypedAST.Lit m _) -> do
       putDst (Constant m)
       return []
+    (TypedAST.Unary BoolNot fctr _) -> do
+      rslt1 <- factorToTAC name fctr
+      src1 <- getDst <$> get
+      dst <- makeTemp name IntType -- bool ops always return int
+      n <- getN <$> get
+      let endStr = name ++ ".end." ++ show n
+      putDst dst
+      putN (n + 1)
+      return ([Copy dst (makeConstant IntType 1)] ++
+              rslt1 ++
+              [Cmp src1 (makeConstant IntType 0),
+              CondJump CondE endStr,
+              Copy dst (makeConstant IntType 0),
+              Label endStr])
     (TypedAST.Unary op expr type_) -> do
       rslt <- factorToTAC name expr
       src <- getDst <$> get

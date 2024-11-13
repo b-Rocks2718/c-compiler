@@ -67,7 +67,7 @@ impl Emulator {
     let r_c = args & 0b111;
 
     // retrieve arguments
-    let r_b = self.regfile[usize::from(r_b)];
+    let mut r_b = self.regfile[usize::from(r_b)];
     let r_c = self.regfile[usize::from(r_c)];
 
     // carry flag is set differently for each instruction,
@@ -101,8 +101,12 @@ impl Emulator {
       },
       4 => {
         // subc
-        let result = u32::wrapping_sub(u32::from(r_b), 
-        u32::wrapping_add(u32::from(r_c), u32::from(self.flags[0])));
+
+        // two's complement
+        r_b = (1 + u32::from(
+          !(u16::wrapping_add(
+          u16::from(!self.flags[0]), r_b)))) as u16;
+        let result = u32::from(r_c) + u32::from(r_b);
 
         // set the carry flag
         self.flags[0] = if result >> 16 != 0 {true} else {false};
@@ -115,7 +119,10 @@ impl Emulator {
       }, 
       6 => {
         // sub, cmp
-        let result = u32::wrapping_sub(u32::from(r_c), u32::from(r_b));
+
+        // two's complement
+        r_b = (1 + u32::from(!r_b)) as u16;
+        let result = u32::from(r_c) + u32::from(r_b);
 
         // set the carry flag
         self.flags[0] = if result >> 16 != 0 {true} else {false};
@@ -268,10 +275,10 @@ impl Emulator {
       11 => self.flags[2] != self.flags[3] || self.flags[1], // ble
 
       // TODO: figure out why these don't match the ROM
-      12 => !self.flags[1] && !self.flags[0], // ba
-      13 => !self.flags[0], // bae
-      14 => self.flags[0], // bb
-      15 => self.flags[0] || self.flags[1], // bbe
+      12 => !self.flags[1] && self.flags[0], // ba
+      13 => self.flags[0] || self.flags[1], // bae
+      14 => !self.flags[0] && !self.flags[1], // bb
+      15 => !self.flags[0] || self.flags[1], // bbe
       _ => false
     };
 

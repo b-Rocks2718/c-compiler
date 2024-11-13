@@ -228,6 +228,18 @@ resolveExpr expr = case expr of
       rsltExpr <- resolveExpr expr'
       return (PostAssign rsltExpr op)
     _ -> lift (Err "Semantics Error: Invalid lvalue")
+  Binary PlusEqOp left right -> case left of
+    (Factor (Var _)) -> do
+      rsltLeft <- resolveExpr left
+      rsltRight <- resolveExpr right
+      return (Binary PlusEqOp rsltLeft rsltRight)
+    _ -> lift (Err "Semantics Error: Invalid lvalue")
+  Binary MinusEqOp left right -> case left of
+    (Factor (Var _)) -> do
+      rsltLeft <- resolveExpr left
+      rsltRight <- resolveExpr right
+      return (Binary MinusEqOp rsltLeft rsltRight)
+    _ -> lift (Err "Semantics Error: Invalid lvalue")
   Binary op left right -> do
     rsltLeft <- resolveExpr left
     rsltRight <- resolveExpr right

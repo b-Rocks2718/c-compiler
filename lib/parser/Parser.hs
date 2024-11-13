@@ -53,7 +53,7 @@ parseParamType = do
     return IntType
 
 parseBlock :: Parser Token Block
-parseBlock = char OpenB *> (Block <$> some parseBlockItem) <* char CloseB
+parseBlock = char OpenB *> (Block <$> many parseBlockItem) <* char CloseB
 
 parseBlockItem :: Parser Token BlockItem
 parseBlockItem =
@@ -161,7 +161,7 @@ parseUnary = liftA2 Unary
 parsePreIncDec :: Parser Token Factor
 parsePreIncDec = do
   op <- char IncTok <|> char DecTok
-  v <- parseVar
+  v <- parseParenVar
   let binop = if op == IncTok then PlusEqOp else MinusEqOp
   -- rewrite '++v' as 'v += 1'
   return (FactorExpr
@@ -183,6 +183,9 @@ parseBinExpand parser minPrec =
         if op == AssignOp then do
           right <- parseBin (Factor <$> parseFactor) nextPrec
           return . Just $ Assign left right
+        else if op `elem` compoundOps then do
+          right <- parseBin (Factor <$> parseFactor) nextPrec
+          return . Just $ Binary op left right
         else if op == TernaryOp then do
           middle <- parseExpr <* char Colon
           right <- parseBin (Factor <$> parseFactor) nextPrec
@@ -208,8 +211,8 @@ parseFactor = parseIntLit <|>
               parseUIntLit <|>
               parseCast <|>
               parseUnary <|>
-              parseParens <|>
               parsePostIncDec <|>
+              parseParens <|>
               liftA2 FunctionCall (identName <$> satisfy isIdent)
                 (char OpenP *> ([] <$ char CloseP <|> some parseArg)) <|>
               parseVar
@@ -227,9 +230,12 @@ parseArg = parseExpr <*
 parseVar :: Parser Token Factor
 parseVar = Var . identName <$> satisfy isIdent
 
+parseParenVar :: Parser Token Factor
+parseParenVar = parseVar <|> (char OpenP *> parseParenVar <* char CloseP)
+
 parsePostIncDec :: Parser Token Factor
 parsePostIncDec = do
-  v <- parseVar
+  v <- parseParenVar
   op <- char IncTok <|> char DecTok
   let postOp = if op == IncTok then PostInc else PostDec
   return (FactorExpr (PostAssign (Factor v) postOp))
@@ -244,3 +250,8 @@ parseEOF = Parser f
     f ts
       | null ts = Ok ((), ts)
       | otherwise = Err $ "Syntax Error: Could not parse " ++ show ts
+
+parseDebug :: Parser Token a
+parseDebug = Parser f
+  where
+    f ts = error $ "Debug: " ++ show ts
