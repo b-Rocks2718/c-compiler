@@ -3,7 +3,7 @@ import unittest
 import os
 import glob
 
-class Test_InvalidTest(unittest.TestCase):
+class Test(unittest.TestCase):
     ignored = [
         # gcc handles % differently than me
         "../writing-a-c-compiler-tests/tests/chapter_5/valid/exp_then_declaration.c",

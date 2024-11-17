@@ -6,3 +6,7 @@ function bcc {
 function basm {
     python3 scripts/basm.py $@
 }
+
+function bemu {
+    cargo run -- $@
+}
