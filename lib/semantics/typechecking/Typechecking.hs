@@ -2,7 +2,8 @@
 module Typechecking where
 
 import Utils
-import SemanticsUtils
+import ParserUtils ( isFunc )
+import SemanticsUtils ( isConst )
 import qualified AST
 import AST(BinOp(..), UnaryOp(..))
 import TypedAST
@@ -90,14 +91,20 @@ typecheckFunc (AST.FunctionDclr name type_  mStorage params mBody) = do
   case lookup name maps of
     Just (oldType, oldAttrs) -> do
       let (alreadyDefined, oldGlobal) = getFunAttrs oldAttrs
-      if oldType /= type_
-        then lift (Err $ "Semantics Error: Incompatible function declarations for " ++ show name)
+      if isFunc oldType && oldType /= type_ then 
+        if isFunc oldType
+          then lift (Err $ "Semantics Error: Incompatible function declarations for " ++ show name ++
+            ": " ++ show oldType ++ " /= " ++ show type_)
+        else do
+          -- function shadows variable, so we add to the map instead of replacing the old def
+          let attrs = FunAttr (hasBody || alreadyDefined) global
+          put $ replace name (type_, attrs) maps
       else if oldGlobal && mStorage == Just Static
         then lift (Err $ "Semantics Error: Static function declaration follows non-static for function " ++ show name)
       else if hasBody && alreadyDefined
         then lift (Err $ "Semantics Error: Multiple definitions for function " ++ show name)
       else do
-        let attrs = FunAttr (hasBody || alreadyDefined)  global
+        let attrs = FunAttr (hasBody || alreadyDefined) global
         put $ replace name (type_, attrs) maps
     Nothing -> do
       let attrs = FunAttr hasBody global

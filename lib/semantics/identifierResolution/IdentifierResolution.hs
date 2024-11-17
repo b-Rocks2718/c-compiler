@@ -9,7 +9,7 @@ data MapEntry = MapEntry {
   entryName :: String,
   fromCurrentScope :: Bool,
   hasLinkage :: Bool
-}
+} deriving  (Show)
 
 type IdentMap = [(String, MapEntry)]
 type MapState a = StateT (IdentMap, Int) Result a
@@ -53,13 +53,13 @@ resolveLocalFunc (FunctionDclr name type_ mStorage params body) = do
     _ -> case lookup name maps of
       (Just (MapEntry _ True False)) -> -- from current scope, no linkage
         lift (Err $ "Semantics Error: Multiple declarations for variable " ++ show name)
-      (Just (MapEntry newName _ _)) -> do
-        let newMaps = replace name (MapEntry newName True True) maps
-        putFst newMaps
+      (Just (MapEntry {})) -> do
         case body of
           Just _ ->
             lift (Err $ "Semantics Error: Local function definition for " ++ show name)
-          Nothing -> return (FunctionDclr newName type_ mStorage params body)
+          Nothing -> do
+            putFst $ replace name (MapEntry name True True) maps
+            return (FunctionDclr name type_ mStorage params body)
       Nothing -> do
         putFst $ (name, MapEntry name True True) : maps
         case body of

@@ -144,3 +144,7 @@ getPrec op = case op of
   XorEqOp -> 1
   ShlEqOp -> 1
   ShrEqOp -> 1
+
+isFunc :: Type_ -> Bool
+isFunc (FunType _ _ ) = True
+isFunc _ = False
