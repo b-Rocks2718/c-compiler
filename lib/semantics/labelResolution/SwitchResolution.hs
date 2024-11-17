@@ -53,10 +53,10 @@ collectCasesStmt stmt = case stmt of
   CaseStmt expr stmt' label -> do
     cases <- get
     case expr of
-      (Factor (Lit (ConstInt n))) -> if IntCase n `elem` cases
+      Lit (ConstInt n) -> if IntCase n `elem` cases
         then lift (Err "Semantics Error: Duplicate cases")
         else put $ cases ++ [IntCase n]
-      (Factor (Lit (ConstUInt n))) -> if IntCase n `elem` cases
+      Lit (ConstUInt n) -> if IntCase n `elem` cases
         then lift (Err "Semantics Error: Duplicate cases")
         else put $ cases ++ [IntCase n]
       _ -> error "Compiler Error: Case expr was not converted to lit"

@@ -100,61 +100,51 @@ data Stmt = RetStmt {
            }
           | NullStmt
 
-data Expr = Factor {
-             getExprValue :: Factor, 
-             getExprType :: Type_
-           }
-          | Binary {
+data Expr = Binary {
              getBinOp :: BinOp, 
              getLeftExpr :: Expr,
              getRightExpr :: Expr,
              getExprType :: Type_
-           }
+          }
           | Assign {
              getDstExpr :: Expr,
              getSrcExpr :: Expr,
              getExprType :: Type_
-           }
+          }
           | PostAssign {
              getSrc :: Expr, 
              getPostOp :: PostOp,
              getExprType :: Type_
-           }
+          }
           | Conditional {
              getConditionExpr :: Expr,
              getTrueExpr :: Expr,
              getFalseExpr :: Expr,
              getExprType :: Type_
-           }
-          deriving (Eq)
-
-data Factor = Lit {
+          }
+          | Lit {
                 getConst :: Const_,
-                getFactorType :: Type_
-            }
-            | Unary {
-                getUnaryOp :: UnaryOp,
-                getFactor :: Factor,
-                getFactorType :: Type_
-            }
-            | FactorExpr {
-                getFactorExpr :: Expr,
-                getFactorType :: Type_
-            }
-            | Var {
-              getVarName :: String,
-              getFactorType :: Type_
-            }
-            | FunctionCall {
-              getFuncName :: String,
-              getArgs :: [Expr],
-              getFactorType :: Type_
-            }
-            | Cast {
-              getFactorType :: Type_,
-              getFactorExpr :: Expr
-            }
-            deriving (Eq)
+                getExprType :: Type_
+          }
+          | Unary {
+              getUnaryOp :: UnaryOp,
+              getFactor :: Expr,
+              getExprType :: Type_
+          }
+          | Var {
+            getVarName :: String,
+            getExprType :: Type_
+          }
+          | FunctionCall {
+            getFuncName :: String,
+            getArgs :: [Expr],
+            getExprType :: Type_
+          }
+          | Cast {
+            getExprType :: Type_,
+            getFactor :: Expr
+          }
+          deriving (Eq)
 
 data FunctionDclr = FunctionDclr {
   fName :: String, 
@@ -317,7 +307,6 @@ showStatement n (DefaultStmt stmt label) =
   where tabs = replicate (4 * n) ' '
 
 instance Show Expr where
-  show (Factor x _) = show x
   show (Binary op left right type_) =
     show op ++ "("  ++ show left ++ ", " ++ show right ++ "," ++ show type_ ++ ")"
   show (Assign x y type_) =
@@ -326,11 +315,8 @@ instance Show Expr where
     "PostAssign(" ++ show x ++ ", "++ show op ++ "," ++ show type_ ++ ")"
   show (Conditional c x y type_) =
     "Conditional(" ++ show c ++ ", " ++ show x ++ ", " ++ show y ++ "," ++ show type_ ++ ")"
-
-instance Show Factor where
   show (Lit n _) = show n
   show (Unary op expr type_) = show op ++ "(" ++ show expr ++ "," ++ show type_ ++ ")"
-  show (FactorExpr expr _) = show expr
   show (Var x type_) = "Var(" ++ show x ++ "," ++ show type_ ++ ")"
   show (FunctionCall name args type_) =
     "FunctionCall(" ++ name ++ ", " ++ show args ++ "," ++ show type_ ++ ")"
@@ -343,7 +329,7 @@ intStaticInit UIntType = Initial . UIntInit
 intStaticInit _ = error "Compiler Error: invalid static init"
 
 litExpr :: Int -> Type_ -> Expr
-litExpr i type_ = Factor (Lit (typeConstructor i) type_) type_
+litExpr i type_ = Lit (typeConstructor i) type_
   where typeConstructor = case type_ of
           IntType -> ConstInt
           UIntType -> ConstUInt

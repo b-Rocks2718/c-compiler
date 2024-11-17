@@ -29,7 +29,7 @@ import Data.List.Split ( splitOn )
 import Data.Maybe( isJust, fromJust )
 
 
-data Result a = Ok a | Err String
+data Result a = Ok a | Err String | Fail
 
 newtype Parser a b =
   Parser { runParser :: [a] -> Result (b, [a]) }
@@ -44,11 +44,12 @@ instance Applicative (Parser a) where
   pure a = Parser (\s -> Ok (a, s))
   (Parser fp) <*> xp = Parser $ \s ->
     case fp s of
-      Err e       -> Err e
+      Err e     -> Err e
+      Fail      -> Fail
       Ok (f,s') -> runParser (f <$> xp) s'
 
 instance Alternative (Parser a) where
-  empty = Parser (\_ -> Err "")
+  empty = Parser (const Fail)
   (Parser p1) <|> (Parser p2) = Parser (\s -> p1 s <|> p2 s)
 
 instance Monad (Parser a) where
@@ -58,47 +59,66 @@ instance Monad (Parser a) where
       where
         q inp = case p1 inp of
           Err e -> Err e
+          Fail  -> Fail
           Ok (x, rest) -> runParser (k x) rest
 
 instance Show a => Show (Result a) where
   show (Ok s) = show s
   show (Err s) = s
+  show Fail = "Fail"
 
 instance Functor Result where
   fmap f (Ok x) = Ok (f x)
   fmap _ (Err e) = Err e
+  fmap _ Fail = Fail
 
 instance Applicative Result where
   pure = Ok
   (Ok f) <*> rX = f <$> rX
   (Err e) <*> _ = Err e
+  Fail <*> _ = Fail
 
 instance Alternative Result where
-  empty = Err ""
-  (Err _) <|> r = r
+  empty = Fail
+  Fail <|> r = r  -- will recover from Fail, but not Err
   l <|> _ = l
 
 instance Monad Result where
   return = pure
   (Ok x) >>= f = f x
   (Err e) >>= _ = Err e
+  Fail >>= _ = Fail
 
 
--- always fails, returns Left "error_msg"
+-- always fails, returns Err "error_msg"
 errorParse :: String -> Parser a b
 errorParse e = Parser $ const (Err e)
+
+-- always fails, returns Fail
+failParse :: Parser a b
+failParse = Parser $ const Fail
 
 -- succeeds if the next elements satisfies the condition p
 satisfy :: Show a => (a -> Bool) -> Parser a a
 satisfy p = Parser f
   where
-    f [] = Err "empty input"
+    f [] = Fail
     f (x:xs)
         | p x       = Ok (x, xs)
-        | otherwise = Err $ "Syntax Error: " ++ show x ++ " failed satisfy"
+        | otherwise = Fail
 
 char :: (Show a, Eq a) => a -> Parser a a
 char c = satisfy (==c)
+
+-- succeeds if the next elements satisfies the condition p
+
+expect :: (Show a, Eq a) => a -> Parser a a
+expect c = Parser f
+  where
+    f [] = Fail
+    f (x:xs)
+        | x == c    = Ok (x, xs)
+        | otherwise = Err $ "Expected " ++ show c ++ ", got " ++ show x
 
 hasDuplicatesWith :: Eq a => [a] -> [a] -> Bool
 hasDuplicatesWith _ [] = False
@@ -156,8 +176,10 @@ replace x y maps =
 writeResult :: String -> Result String -> IO ()
 writeResult path (Ok s) = writeFile path s
 writeResult _ (Err _) = return ()
+writeResult _ Fail = return ()
 
 -- to display errors
 showErr :: Result a -> IO ()
 showErr (Ok _) = return ()
 showErr (Err s) = putStrLn s
+showErr Fail = putStrLn "Fail"

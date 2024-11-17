@@ -39,22 +39,22 @@ data MachineInstr = Add  Reg Reg Reg
                   | Push Reg
                   | Pop  Reg
                   | Call String
-                  | Bz   String -- branch if zero
-                  | Bp   String -- branch if positive
-                  | Bn   String -- branch if negative
-                  | Bc   String -- branch if carry
-                  | Bo   String -- branch if overflow
-                  | Bnz  String -- branch if nonzero
-                  | Jmp  String -- unconditional jump
-                  | Bnc  String -- branch if not carry
-                  | Bg   String -- branch if greater (signed)
-                  | Bge  String -- branch if greater or equal (signed)
-                  | Bl   String -- branch if less (signed)
-                  | Ble  String -- branch if less or equal (signed)
-                  | Ba   String -- branch if above (unsigned)
-                  | Bae  String -- branch if above or equal (unsigned)
-                  | Bb   String -- branch if below (unsigned)
-                  | Bbe  String -- branch if below or equal (unsigned)
+                  | Bz   Imm -- branch if zero
+                  | Bp   Imm -- branch if positive
+                  | Bn   Imm -- branch if negative
+                  | Bc   Imm -- branch if carry
+                  | Bo   Imm -- branch if overflow
+                  | Bnz  Imm -- branch if nonzero
+                  | Jmp  Imm -- unconditional jump
+                  | Bnc  Imm -- branch if not carry
+                  | Bg   Imm -- branch if greater (signed)
+                  | Bge  Imm -- branch if greater or equal (signed)
+                  | Bl   Imm -- branch if less (signed)
+                  | Ble  Imm -- branch if less or equal (signed)
+                  | Ba   Imm -- branch if above (unsigned)
+                  | Bae  Imm -- branch if above or equal (unsigned)
+                  | Bb   Imm -- branch if below (unsigned)
+                  | Bbe  Imm -- branch if below or equal (unsigned)
                   | Clf -- clear flags
                   | Nop
                   | Sys Exception -- calls the OS
@@ -131,16 +131,16 @@ toMachineInstr name instr =
             AsmAST.Binary BitShl _ _ _ _ -> [Call "left_shift"]
             AsmAST.Binary BitShr _ _ _ _ -> [Call "right_shift"]
             AsmAST.Jump s -> [Movi R3 (ImmLabel s), Jalr R0 R3] -- will optimize later
-            AsmAST.CondJump CondE s -> [Bz s]
-            AsmAST.CondJump CondNE s -> [Bnz s]
-            AsmAST.CondJump CondG s -> [Bg s]
-            AsmAST.CondJump CondGE s -> [Bge s]
-            AsmAST.CondJump CondL s -> [Bl s]
-            AsmAST.CondJump CondLE s -> [Ble s]
-            AsmAST.CondJump CondA s -> [Ba s]
-            AsmAST.CondJump CondAE s -> [Bae s]
-            AsmAST.CondJump CondB s -> [Bb s]
-            AsmAST.CondJump CondBE s -> [Bbe s]
+            AsmAST.CondJump CondE s -> [Bz (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondNE s -> [Bnz (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondG s -> [Bg (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondGE s -> [Bge (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondL s -> [Bl (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondLE s -> [Ble (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondA s -> [Ba (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondAE s -> [Bae (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondB s -> [Bb (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
+            AsmAST.CondJump CondBE s -> [Bbe (ImmLit 1), Jmp (ImmLit 3), Movi R3 (ImmLabel s), Jalr R0 R3]
             AsmAST.Label s -> [Label s]
             AsmAST.AllocateStack n -> if n == 0 then []
               else if n >= -64 && n <= 63
@@ -193,22 +193,22 @@ asmToStr :: MachineInstr -> String
 asmToStr (Label s) = s ++ ":"
 asmToStr (Call s) = "\tcall " ++ s
 asmToStr (Sys exc) = "\tsys " ++ (toUpper <$> show exc)
-asmToStr (Jmp s) = "\tjmp " ++ s
-asmToStr (Bz s) = "\tbz " ++ s
-asmToStr (Bp s) = "\tbp " ++ s
-asmToStr (Bn s) = "\tbn " ++ s
-asmToStr (Bc s) = "\tbc " ++ s
-asmToStr (Bo s) = "\tbo " ++ s
-asmToStr (Bnz s) = "\tbnz " ++ s
-asmToStr (Bnc s) = "\tbnc " ++ s
-asmToStr (Bg s) = "\tbg " ++ s
-asmToStr (Bge s) = "\tbge " ++ s
-asmToStr (Bl s) = "\tbl " ++ s
-asmToStr (Ble s) = "\tble " ++ s
-asmToStr (Ba s) = "\tba " ++ s
-asmToStr (Bae s) = "\tbae " ++ s
-asmToStr (Bb s) = "\tbb " ++ s
-asmToStr (Bbe s) = "\tbbe " ++ s
+asmToStr (Jmp s) = "\tjmp " ++ show s
+asmToStr (Bz s) = "\tbz " ++ show s
+asmToStr (Bp s) = "\tbp " ++ show s
+asmToStr (Bn s) = "\tbn " ++ show s
+asmToStr (Bc s) = "\tbc " ++ show s
+asmToStr (Bo s) = "\tbo " ++ show s
+asmToStr (Bnz s) = "\tbnz " ++ show s
+asmToStr (Bnc s) = "\tbnc " ++ show s
+asmToStr (Bg s) = "\tbg " ++ show s
+asmToStr (Bge s) = "\tbge " ++ show s
+asmToStr (Bl s) = "\tbl " ++ show s
+asmToStr (Ble s) = "\tble " ++ show s
+asmToStr (Ba s) = "\tba " ++ show s
+asmToStr (Bae s) = "\tbae " ++ show s
+asmToStr (Bb s) = "\tbb " ++ show s
+asmToStr (Bbe s) = "\tbbe " ++ show s
 asmToStr (Fill s) = "\t.fill " ++ show s
 asmToStr (NlComment s) = "\n# " ++ s
 asmToStr (Comment s) = "\t# " ++ s

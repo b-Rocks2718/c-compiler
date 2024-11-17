@@ -75,7 +75,7 @@ labelStmt name stmt = case stmt of
       Just l -> return l
     labeledStmt <- labelStmt name stmt'
     n <- case expr of
-      Factor (Lit n) -> return n
+      Lit n -> return n
       _ -> error "Compiler Error: Case has none constant expr"
     return (CaseStmt expr labeledStmt (Just $ label ++ "." ++ show (getConstInt n)))
   DefaultStmt stmt' _ -> do

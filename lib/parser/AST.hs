@@ -71,10 +71,7 @@ data Stmt = RetStmt {
            }
           | NullStmt
 
-data Expr = Factor {
-             getExprValue :: Factor
-           }
-          | Binary {
+data Expr = Binary {
              getBinOp :: BinOp,
              getLeftExpr :: Expr,
              getRightExpr :: Expr
@@ -92,15 +89,12 @@ data Expr = Factor {
              getTrueExpr :: Expr,
              getFalseExpr :: Expr
            }
+          | Lit Const_
+          | Unary UnaryOp Expr
+          | Var String
+          | FunctionCall String [Expr]
+          | Cast Type_ Expr
           deriving (Eq)
-
-data Factor = Lit Const_
-            | Unary UnaryOp Factor
-            | FactorExpr Expr
-            | Var String
-            | FunctionCall String [Expr]
-            | Cast Type_ Expr
-            deriving (Eq)
 
 data Const_ = ConstInt {getConstInt :: Int} | ConstUInt {getConstInt :: Int}
   deriving (Show, Eq)
@@ -312,7 +306,6 @@ instance Show Stmt where
   show = showStatement 0
 
 instance Show Expr where
-  show (Factor x) = show x
   show (Binary op left right) =
     show op ++ "("  ++ show left ++ ", " ++ show right ++ ")"
   show (Assign x y) =
@@ -321,11 +314,8 @@ instance Show Expr where
     "PostAssign(" ++ show x ++ ", "++ show op ++ ")"
   show (Conditional c x y) =
     "Conditional(" ++ show c ++ ", " ++ show x ++ ", " ++ show y ++ ")"
-
-instance Show Factor where
   show (Lit n) = show n
   show (Unary op expr) = show op ++ "(" ++ show expr ++ ")"
-  show (FactorExpr expr) = show expr
   show (Var x) = "Var(" ++ show x ++ ")"
   show (FunctionCall name args) =
     "FunctionCall(" ++ name ++ ", " ++ show args ++ ")"

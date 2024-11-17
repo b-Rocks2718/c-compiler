@@ -42,7 +42,7 @@ createLabelMap name item eMaps =
           case mStmt2 of
             Just stmt2 -> createLabelMap name (StmtBlock stmt2) (pure newMaps)
             Nothing -> pure newMaps
-        CompoundStmt (Block items) -> foldr (createLabelMap name) (pure []) items
+        CompoundStmt (Block items) -> foldr (createLabelMap name) eMaps items
         WhileStmt _ stmt' _ -> createLabelMap name (StmtBlock stmt') eMaps
         DoWhileStmt stmt' _ _ -> createLabelMap name (StmtBlock stmt') eMaps
         ForStmt _ _ _ stmt' _ -> createLabelMap name (StmtBlock stmt') eMaps
@@ -63,6 +63,7 @@ resolveBlockLabels name maps item eItems = do
   case resolveItemLabels name maps item of
     Ok resolved -> return (Block $ resolved : items)
     Err s -> Err s
+    Fail -> Fail
 
 resolveItemLabels :: String -> LabelMap -> BlockItem -> Result BlockItem
 resolveItemLabels name maps item =

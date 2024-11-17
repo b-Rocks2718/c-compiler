@@ -30,8 +30,10 @@ resolveProgFold fs = evalStateT (foldr f (pure []) fs) ([], 0)
           case resolvedGotos of
             Ok dclr -> return (dclr : dclrs)
             Err msg -> lift (Err msg)
+            Fail -> lift Fail
 
 showSymbols :: Result SymbolTable -> String
 showSymbols (Ok symbols) =
   symbols >>= (\(ident, attrs) -> show ident ++ ": " ++ show attrs ++ "\n")
 showSymbols (Err msg) = msg
+showSymbols Fail = "Fail"

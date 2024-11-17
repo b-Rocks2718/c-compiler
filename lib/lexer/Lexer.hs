@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Lexer where
 
 import Utils
@@ -75,8 +76,7 @@ lexRegex regex = Parser f
   where
     f s
       | s =~ ('^' : regex) = Ok (match, drop (length match) s)
-      | otherwise = Err $ "did not match regex: " ++ regex ++
-        " at " ++ head (lines s)
+      | otherwise = Fail
       where match = (s =~ regex) :: String
 
 -- takes token and matching regex as input
@@ -173,6 +173,7 @@ lexToken = -- keywords
 showTokens :: Result ([Token], String) -> String
 showTokens (Ok (ts, _)) = show ts
 showTokens (Err s) = s
+showTokens Fail = "Fail"
 
 lexer :: Parser Char [Token]
 lexer = many (spaces *> lexToken) <* lexEOF

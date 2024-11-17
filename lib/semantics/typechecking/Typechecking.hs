@@ -77,7 +77,7 @@ typecheckFileScopeVar (AST.VariableDclr v type_ mStorage mExpr) = do
             else return init_
           return (initResult, globalResult)
   let attrs = StaticAttr newInit newGlobal
-  put $ (v, (type_, attrs)) : maps
+  put $ replace v (type_, attrs) maps
   return (VariableDclr v type_ mStorage expr)
 
 typecheckFunc :: AST.FunctionDclr -> StateT SymbolTable Result FunctionDclr
@@ -238,9 +238,6 @@ typecheckLocalVar (AST.VariableDclr v type_ mStorage mExpr) = do
 
 typecheckExpr :: AST.Expr -> StateT SymbolTable Result Expr
 typecheckExpr e = case e of
-  AST.Factor f -> do
-    rslt <- typecheckFactor f
-    return (Factor rslt (getFactorType rslt))
   AST.Binary op left right -> do
     typedLeft <- typecheckExpr left
     typedRight <- typecheckExpr right
@@ -276,15 +273,6 @@ typecheckExpr e = case e of
         convertedLeft = convertExprType typedLeft commonType
         convertedRight = convertExprType typedRight commonType
     return (Conditional typedC convertedLeft convertedRight commonType)
-
-convertExprType :: Expr -> Type_ -> Expr
-convertExprType expr type_ =
-  if getExprType expr == type_ then
-    expr
-  else Factor (Cast type_ expr) type_
-
-typecheckFactor :: AST.Factor -> StateT SymbolTable Result Factor
-typecheckFactor f = case f of
   AST.FunctionCall name args -> do
     maps <- get
     case lookup name maps of
@@ -297,30 +285,32 @@ typecheckFactor f = case f of
             return (FunctionCall name argsRslt retType)
         _ -> lift
           (Err $ "Variable " ++ show (head $ splitOn "." name) ++ " cannot be used as a function")
-      Nothing -> error $ "Compiler Error: missed function declaration for " ++ show f
+      Nothing -> error $ "Compiler Error: missed function declaration for " ++ show name
   AST.Var v -> do
     maps <- get
     case lookup v maps of
       Just (rsltType, _) -> case rsltType of
-        AST.FunType _ _ -> lift (Err $ "Function " ++ show v ++ "cannot be used as a variable")
+        AST.FunType _ _ -> lift (Err $ "Function " ++ show v ++ " cannot be used as a variable")
         type_ -> return (Var v type_)
       Nothing -> error $ "Compiler Error: missed variable declaration for " ++ show v
-  AST.Unary op func -> do
-    rslt <- typecheckFactor func
+  AST.Unary op expr' -> do
+    rslt <- typecheckExpr expr'
     let type_ = if op == BoolNot
         then IntType
-        else getFactorType rslt
+        else getExprType rslt
     return (Unary op rslt type_)
-  AST.FactorExpr expr -> do
-    rslt <- typecheckExpr expr
-    let type_ = getExprType rslt
-    return (FactorExpr rslt type_)
   AST.Lit c -> case c of
     AST.ConstInt _ -> return (Lit c IntType)
     AST.ConstUInt _ -> return (Lit c UIntType)
   AST.Cast target expr -> do
     rslt <- typecheckExpr expr
     return (Cast target rslt)
+
+convertExprType :: Expr -> Type_ -> Expr
+convertExprType expr type_ =
+  if getExprType expr == type_ then
+    expr
+  else Cast type_ expr
 
 typecheckArgs :: [AST.Expr] -> [Type_] -> StateT SymbolTable Result [Expr]
 typecheckArgs args types =

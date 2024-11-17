@@ -9,8 +9,8 @@ parseProg :: Parser Token Prog
 parseProg = Prog <$> many parseDclr <* parseEOF
 
 parseDclr :: Parser Token Declaration
-parseDclr = VarDclr <$> parseVariableDclr <|>
-            FunDclr <$> parseFunction
+parseDclr = FunDclr <$> parseFunction <|>
+            VarDclr <$> parseVariableDclr
 
 parseFunction :: Parser Token FunctionDclr
 parseFunction = do
@@ -81,15 +81,29 @@ parseStmt =
     (optional parseExpr <* char Semi)
     (optional parseExpr <* char CloseP)
     parseStmt (pure Nothing) <|>
-  char SwitchTok *> lift4 SwitchStmt parseExpr parseStmt (pure Nothing) (pure Nothing) <|>
+  char SwitchTok *> lift4 SwitchStmt (char OpenP *> parseExpr <* char CloseP) 
+    parseStmt (pure Nothing) (pure Nothing) <|>
   char CaseTok *> liftA3 CaseStmt (parseExpr <* char Colon) parseStmt (pure Nothing) <|>
   char DefaultTok *> char Colon *> liftA2 DefaultStmt parseStmt (pure Nothing) <|>
   NullStmt <$ char Semi
 
 parseForInit :: Parser Token ForInit
 parseForInit =
-  InitDclr <$> parseVariableDclr <|>
+  InitDclr <$> parseForDclr <|>
   InitExpr <$> optional parseExpr <* char Semi
+
+parseForDclr :: Parser Token VariableDclr
+parseForDclr = do
+  type_ <- typeSpecToType <$> parseTypeSpec
+  name <- identName <$> satisfy isIdent
+  expr <- optional (char Equals *> parseExpr) <* char Semi
+  return (VariableDclr name type_ Nothing expr)
+
+typeSpecToType :: TypeSpecifier -> Type_
+typeSpecToType spec = case spec of
+  IntSpec -> IntType
+  SIntSpec -> IntType
+  UIntSpec -> UIntType
 
 parseVariableDclr :: Parser Token VariableDclr
 parseVariableDclr = do
@@ -124,7 +138,7 @@ parseTypeAndStorageClass = do
   if hasDuplicates types then
     errorParse $ "Duplicate type specifiers: " ++ show types
   else if null types then
-    errorParse "Declaration has no type"
+    failParse
   else if SIntSpec `elem` types && UIntSpec `elem` types then
     errorParse $ "Invalid type specifiers: " ++ show types
   else if length storageClasses > 1 then
@@ -134,7 +148,7 @@ parseTypeAndStorageClass = do
   else
     return (IntType, safeHead storageClasses)
 
-parseIntLit :: Parser Token Factor
+parseIntLit :: Parser Token Expr
 parseIntLit = do
   n <- intLitVal <$> satisfy isIntLit
   -- TODO:
@@ -143,7 +157,7 @@ parseIntLit = do
   --else
   return (Lit (ConstInt n))
 
-parseUIntLit :: Parser Token Factor
+parseUIntLit :: Parser Token Expr
 parseUIntLit = do
   n <- intLitVal <$> satisfy isUIntLit
   -- TODO:
@@ -152,21 +166,19 @@ parseUIntLit = do
   --else
   return (Lit (ConstInt n))
 
-parseUnary :: Parser Token Factor
+parseUnary :: Parser Token Expr
 parseUnary = liftA2 Unary
               (getUnaryOp <$> satisfy isUnaryOp)
               parseFactor <|>
              parsePreIncDec
 
-parsePreIncDec :: Parser Token Factor
+parsePreIncDec :: Parser Token Expr
 parsePreIncDec = do
   op <- char IncTok <|> char DecTok
   v <- parseParenVar
   let binop = if op == IncTok then PlusEqOp else MinusEqOp
   -- rewrite '++v' as 'v += 1'
-  return (FactorExpr
-    (Binary binop (Factor v)
-    (Factor (Lit (ConstInt 1)))))
+  return (Binary binop v (Lit (ConstInt 1)))
 
 -- adds next factor to binary expression
 -- needed to make operators left-associative
@@ -181,17 +193,17 @@ parseBinExpand parser minPrec =
     then do
         -- higher precedence: create new ASTExpr
         if op == AssignOp then do
-          right <- parseBin (Factor <$> parseFactor) nextPrec
+          right <- parseBin parseFactor nextPrec
           return . Just $ Assign left right
         else if op `elem` compoundOps then do
-          right <- parseBin (Factor <$> parseFactor) nextPrec
+          right <- parseBin parseFactor nextPrec
           return . Just $ Binary op left right
         else if op == TernaryOp then do
           middle <- parseExpr <* char Colon
-          right <- parseBin (Factor <$> parseFactor) nextPrec
+          right <- parseBin parseFactor nextPrec
           return . Just $ Conditional left middle right
         else do
-          right <- parseBin (Factor <$> parseFactor) (nextPrec + 1)
+          right <- parseBin parseFactor (nextPrec + 1)
           return . Just $ Binary op left right
     else empty -- will just use left expr
 
@@ -203,10 +215,10 @@ parseBin parser minPrec = do
     Nothing -> parser
     Just newLeft -> parseBin (pure newLeft) minPrec
 
-parseParens :: Parser Token Factor
-parseParens = char OpenP *> (FactorExpr <$> parseExpr) <* char CloseP
+parseParens :: Parser Token Expr
+parseParens = char OpenP *> parseExpr <* char CloseP
 
-parseFactor :: Parser Token Factor
+parseFactor :: Parser Token Expr
 parseFactor = parseIntLit <|>
               parseUIntLit <|>
               parseCast <|>
@@ -218,7 +230,7 @@ parseFactor = parseIntLit <|>
               parseVar
 
 -- cast / param types are similar in that storage specifiers aren't allowed
-parseCast :: Parser Token Factor
+parseCast :: Parser Token Expr
 parseCast = liftA2 Cast
   (char OpenP *> parseParamType <* char CloseP)
   parseExpr
@@ -227,21 +239,21 @@ parseArg :: Parser Token Expr
 parseArg = parseExpr <*
   (char Comma <|> char CloseP)
 
-parseVar :: Parser Token Factor
+parseVar :: Parser Token Expr
 parseVar = Var . identName <$> satisfy isIdent
 
-parseParenVar :: Parser Token Factor
+parseParenVar :: Parser Token Expr
 parseParenVar = parseVar <|> (char OpenP *> parseParenVar <* char CloseP)
 
-parsePostIncDec :: Parser Token Factor
+parsePostIncDec :: Parser Token Expr
 parsePostIncDec = do
   v <- parseParenVar
   op <- char IncTok <|> char DecTok
   let postOp = if op == IncTok then PostInc else PostDec
-  return (FactorExpr (PostAssign (Factor v) postOp))
+  return (PostAssign v postOp)
 
 parseExpr :: Parser Token Expr
-parseExpr = parseBin (Factor <$> parseFactor) 0
+parseExpr = parseBin parseFactor 0
 
 -- to ensure the entire file was parsed
 parseEOF :: Parser Token ()

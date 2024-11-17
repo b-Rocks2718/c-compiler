@@ -143,7 +143,7 @@ resolveStmt stmt = case stmt of
     n <- case isConst expr of
       Just m -> return m
       Nothing -> lift (Err "Semantics Error: Case has non-constant value")
-    liftA3 CaseStmt (pure $ Factor (Lit (ConstInt n))) (resolveStmt stmt') (pure label)
+    liftA3 CaseStmt (pure $ Lit (ConstInt n)) (resolveStmt stmt') (pure label)
   DefaultStmt stmt' label -> liftA2 DefaultStmt (resolveStmt stmt') (pure label)
   NullStmt -> return NullStmt
 
@@ -218,24 +218,24 @@ resolveFileScopeVarDclr (VariableDclr name type_ mStorage mExpr) = do
 resolveExpr :: Expr -> MapState Expr
 resolveExpr expr = case expr of
   Assign left right -> case left of
-    (Factor (Var _)) -> do
+    Var _ -> do
       rsltLeft <- resolveExpr left
       rsltRight <- resolveExpr right
       return (Assign rsltLeft rsltRight)
     _ -> lift (Err "Semantics Error: Invalid lvalue")
   PostAssign expr' op -> case expr' of
-    (Factor (Var _)) -> do
+    Var _ -> do
       rsltExpr <- resolveExpr expr'
       return (PostAssign rsltExpr op)
     _ -> lift (Err "Semantics Error: Invalid lvalue")
   Binary PlusEqOp left right -> case left of
-    (Factor (Var _)) -> do
+    Var _ -> do
       rsltLeft <- resolveExpr left
       rsltRight <- resolveExpr right
       return (Binary PlusEqOp rsltLeft rsltRight)
     _ -> lift (Err "Semantics Error: Invalid lvalue")
   Binary MinusEqOp left right -> case left of
-    (Factor (Var _)) -> do
+    Var _ -> do
       rsltLeft <- resolveExpr left
       rsltRight <- resolveExpr right
       return (Binary MinusEqOp rsltLeft rsltRight)
@@ -244,24 +244,15 @@ resolveExpr expr = case expr of
     rsltLeft <- resolveExpr left
     rsltRight <- resolveExpr right
     return (Binary op rsltLeft rsltRight)
-  Factor fctr-> do
-    rslt <- resolveFactor fctr
-    return (Factor rslt)
   Conditional condition left right -> do
     rsltCondition <- resolveExpr condition
     rsltLeft <- resolveExpr left
     rsltRight <- resolveExpr right
     return (Conditional rsltCondition rsltLeft rsltRight)
-
-resolveFactor :: Factor -> MapState Factor
-resolveFactor fctr = case fctr of
   Lit n -> return (Lit n)
-  Unary op fctr' -> do
-    rslt <- resolveFactor fctr'
+  Unary op expr' -> do
+    rslt <- resolveExpr expr'
     return (Unary op rslt)
-  FactorExpr expr -> do
-    rslt <- resolveExpr expr
-    return (FactorExpr rslt)
   Var name -> do
     maps <- getFst
     case lookup name maps of
@@ -274,7 +265,7 @@ resolveFactor fctr = case fctr of
         newArgs <- resolveArgs args
         return (FunctionCall (entryName entry) newArgs)
       Nothing -> lift (Err $ "Semantics Error: Function " ++ show name ++ " has not been declared")
-  Cast target expr -> Cast target <$> resolveExpr expr
+  Cast target expr' -> Cast target <$> resolveExpr expr'
 
 resolveArgs :: [Expr] -> MapState [Expr]
 resolveArgs = foldr f (return [])

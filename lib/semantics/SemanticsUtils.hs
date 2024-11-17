@@ -3,18 +3,6 @@ module SemanticsUtils where
 import Utils
 import AST
 
-isFactorConst :: Factor -> Maybe Int
-isFactorConst factor = case factor of
-  Lit (ConstInt n) -> pure n
-  Lit (ConstUInt n) -> pure n
-  Unary Complement f -> complement <$> isFactorConst f
-  Unary Negate f -> (* (- 1)) <$> isFactorConst f
-  Unary BoolNot f -> (\x -> if x == 0 then 1 else 0) <$> isFactorConst f
-  FactorExpr expr -> isConst expr
-  Var _ -> Nothing
-  FunctionCall _ _ -> Nothing
-  Cast _ expr -> isConst expr -- TODO: actually cast stuff here
-
 boolToInt :: Bool -> Int
 boolToInt b = if b then 1 else 0
 
@@ -24,7 +12,14 @@ exprToBool expr = isConst expr >>= (\x -> if x /= 0 then pure True else pure Fal
 -- evaluate const expression, return Nothing for non-const
 isConst :: Expr -> Maybe Int
 isConst expr = case expr of
-  Factor f -> isFactorConst f
+  Lit (ConstInt n) -> pure n
+  Lit (ConstUInt n) -> pure n
+  Unary Complement f -> complement <$> isConst f
+  Unary Negate f -> (* (- 1)) <$> isConst f
+  Unary BoolNot f -> (\x -> if x == 0 then 1 else 0) <$> isConst f
+  Var _ -> Nothing
+  FunctionCall _ _ -> Nothing
+  Cast _ expr' -> isConst expr' -- TODO: actually cast stuff here
   Binary SubOp left right -> liftA2 (-) (isConst left) (isConst right)
   Binary AddOp left right -> liftA2 (+) (isConst left) (isConst right)
   Binary MulOp left right -> liftA2 (*) (isConst left) (isConst right)

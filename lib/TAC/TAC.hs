@@ -101,7 +101,7 @@ varDclrTo :: String -> TypedAST.VariableDclr -> TACState [Instr]
 varDclrTo name (TypedAST.VariableDclr varName type_ mStorage mExpr) = case mExpr of
   Just expr -> case mStorage of
     Just _ -> pure []
-    Nothing -> exprToTAC name (TypedAST.Assign (TypedAST.Factor (TypedAST.Var varName type_) type_) expr type_)
+    Nothing -> exprToTAC name (TypedAST.Assign (TypedAST.Var varName type_) expr type_)
   Nothing -> pure []
 
 stmtToTAC :: String -> TypedAST.Stmt -> TACState [Instr]
@@ -264,56 +264,6 @@ ifElseToTAC name condition left right = do
      rslt3 ++
     [Label endStr])
 
-factorToTAC :: String -> TypedAST.Factor -> TACState [Instr]
-factorToTAC name factor =
-  case factor of
-    (TypedAST.Lit m _) -> do
-      putDst (Constant m)
-      return []
-    (TypedAST.Unary BoolNot fctr _) -> do
-      rslt1 <- factorToTAC name fctr
-      src1 <- getDst <$> get
-      dst <- makeTemp name IntType -- bool ops always return int
-      n <- getN <$> get
-      let endStr = name ++ ".end." ++ show n
-      putDst dst
-      putN (n + 1)
-      return ([Copy dst (makeConstant IntType 1)] ++
-              rslt1 ++
-              [Cmp src1 (makeConstant IntType 0),
-              CondJump CondE endStr,
-              Copy dst (makeConstant IntType 0),
-              Label endStr])
-    (TypedAST.Unary op expr type_) -> do
-      rslt <- factorToTAC name expr
-      src <- getDst <$> get
-      dst <- makeTemp name type_
-      putDst dst
-      return (rslt ++ [Unary op dst src])
-    (TypedAST.FactorExpr e _) -> exprToTAC name e
-    (TypedAST.Var v _) -> do
-      putDst (Var v)
-      return []
-    (TypedAST.FunctionCall funcName args type_) -> do
-      (rslts, srcs) <- argsToTAC name args
-      dst <- makeTemp name type_
-      putDst dst
-      return (rslts ++ [Call funcName dst srcs])
-    (TypedAST.Cast type_ expr) -> do
-      rslt <- exprToTAC name expr
-      cast <-
-        if type_ == getExprType expr then
-          return [] -- return rslt
-        else do
-          -- if typed had multiple sizes, this is where
-          -- you'd truncate or extend
-          -- right now, the only typed are 16 bit signed or unsigned
-          src <- getDst <$> get
-          dst <- makeTemp name type_
-          putDst dst
-          return [Copy dst src]
-      return (rslt ++ cast)
-
 argsToTAC :: String -> [TypedAST.Expr] -> TACState ([Instr], [Val])
 argsToTAC name = foldl' (argsFold name) (return ([], []))
 
@@ -368,7 +318,6 @@ relationalToTAC name op left right type_ = do
 exprToTAC :: String -> TypedAST.Expr -> TACState [Instr]
 exprToTAC name expr =
   case expr of
-    (TypedAST.Factor f _) -> factorToTAC name f
     -- short-circuiting operators
     (TypedAST.Binary BoolAnd left right type_) -> do
       rslt1 <- exprToTAC name left
@@ -427,7 +376,7 @@ exprToTAC name expr =
         dst2 <- makeTemp name type_ -- non compound op makes new variable for result
         putDst dst2 -- possible optimization: use dst1
         return (rslt1 ++ rslt2 ++ [Binary op dst2 src1 src2 type_])
-    (TypedAST.Assign (TypedAST.Factor (TypedAST.Var v _) _) expr' _) -> do
+    (TypedAST.Assign (TypedAST.Var v _) expr' _) -> do
       -- possible optimization: remove the Copy here, pass dst to expr function
       rslt <- exprToTAC name expr'
       src <- getDst <$> get
@@ -435,7 +384,7 @@ exprToTAC name expr =
       putDst dst
       return (rslt ++ [Copy dst src])
     (TypedAST.Assign {}) -> error "Compiler Error: missed invalid lvalue"
-    (TypedAST.PostAssign (TypedAST.Factor (TypedAST.Var v _) _) op type_) -> do
+    (TypedAST.PostAssign (TypedAST.Var v _) op type_) -> do
       let src = Var v
       oldVal <- makeTemp name type_
       putDst oldVal
@@ -449,6 +398,7 @@ exprToTAC name expr =
       src2 <- getDst <$> get
       n <- getN <$> get
       let elseStr = name ++ ".else." ++ show n
+      putN (n + 1)
       rslt3 <- exprToTAC name right
       src3 <- getDst <$> get
       dst <- makeTemp name type_
@@ -466,6 +416,51 @@ exprToTAC name expr =
          rslt3 ++
         [Copy dst src3,
          Label endStr])
+    (TypedAST.Lit m _) -> do
+      putDst (Constant m)
+      return []
+    (TypedAST.Unary BoolNot fctr _) -> do
+      rslt1 <- exprToTAC name fctr
+      src1 <- getDst <$> get
+      dst <- makeTemp name IntType -- bool ops always return int
+      n <- getN <$> get
+      let endStr = name ++ ".end." ++ show n
+      putDst dst
+      putN (n + 1)
+      return ([Copy dst (makeConstant IntType 1)] ++
+              rslt1 ++
+              [Cmp src1 (makeConstant IntType 0),
+              CondJump CondE endStr,
+              Copy dst (makeConstant IntType 0),
+              Label endStr])
+    (TypedAST.Unary op expr' type_) -> do
+      rslt <- exprToTAC name expr'
+      src <- getDst <$> get
+      dst <- makeTemp name type_
+      putDst dst
+      return (rslt ++ [Unary op dst src])
+    (TypedAST.Var v _) -> do
+      putDst (Var v)
+      return []
+    (TypedAST.FunctionCall funcName args type_) -> do
+      (rslts, srcs) <- argsToTAC name args
+      dst <- makeTemp name type_
+      putDst dst
+      return (rslts ++ [Call funcName dst srcs])
+    (TypedAST.Cast type_ expr') -> do
+      rslt <- exprToTAC name expr'
+      cast <-
+        if type_ == getExprType expr' then
+          return [] -- return rslt
+        else do
+          -- if typed had multiple sizes, this is where
+          -- you'd truncate or extend
+          -- right now, the only typed are 16 bit signed or unsigned
+          src <- getDst <$> get
+          dst <- makeTemp name type_
+          putDst dst
+          return [Copy dst src]
+      return (rslt ++ cast)
 
 -- utils
 

@@ -283,7 +283,7 @@ impl Emulator {
     };
 
     if branch {
-      self.pc = u16::wrapping_add(self.pc, 1 + imm);
+      self.pc = u16::wrapping_add(self.pc, u16::wrapping_add(1 , imm));
     } else {
       self.pc += 1;
     }

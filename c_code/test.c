@@ -1,15 +1,21 @@
-/* Test that compound assignment expressions yield the correct value, have
- * the same precedence, and are right-associative.
+/* Verify that if variable is tentatively defined one or more times,
+ * but not explicitly initialized, we'll initialize it to 0.
  */
+
+/* This declares foo but does not define it */
+extern int foo;
+
+/* A tentative definition of foo */
+int foo;
+
+/* Another tentative definition of foo */
+int foo;
+
 int main(void) {
-    int a = 250;
-    int b = 200;
-    int c = 100;
-    int d = 75;
-    int e = -25;
-    int f = 0;
-    int x = 0;
-    x = a += b -= c *= d /= e %= f = -7;
-    return a == 2250 && b == 2000 && c == -1800 && d == -18 && e == 4 &&
-           f == -7 && x == 2250;
+    for (int i = 0; i < 5; i = i + 1)
+        foo = foo + 1;
+    return foo;
 }
+
+/* Yet another tentative definition of foo */
+int foo;

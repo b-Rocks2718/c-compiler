@@ -1,6 +1,6 @@
 module Main where
 
-import Utils ( Parser(runParser), liftA2, writeResult, showErr, splitOn, Result (Err, Ok))
+import Utils ( Parser(runParser), liftA2, writeResult, showErr, splitOn, Result (Err, Ok), Result(Fail))
 import Preprocessor ( preprocess )
 import Lexer ( lexProg, showTokens )
 import Parser ( parseProg )
@@ -50,5 +50,6 @@ main = do
   let asmFile = fileName ++ ".s"
   writeResult asmFile code
   case code of
-    Err _ -> return 1
     Ok _ -> return 0
+    Err _ -> return 1
+    Fail -> return 2
