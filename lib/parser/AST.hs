@@ -96,7 +96,10 @@ data Expr = Binary {
           | Cast Type_ Expr
           deriving (Eq)
 
-data Const_ = ConstInt {getConstInt :: Int} | ConstUInt {getConstInt :: Int}
+data Const_ = ConstInt {getConstInt :: Int} 
+            | ConstUInt {getConstInt :: Int}
+            | ConstLong {getConstInt :: Int}
+            | ConstULong {getConstInt :: Int}
   deriving (Show, Eq)
 
 data CaseLabel = IntCase Int | DefaultCase
@@ -108,7 +111,7 @@ data Declaration = VarDclr VariableDclr | FunDclr FunctionDclr
 data StorageClass = Static | Extern
   deriving (Show, Eq)
 
-data TypeSpecifier = IntSpec | UIntSpec | SIntSpec
+data TypeSpecifier = IntSpec | UIntSpec | SIntSpec | LongSpec
   deriving (Show, Eq)
 
 data DclrPrefix = TypePrefix TypeSpecifier | StoragePrefix StorageClass
@@ -129,7 +132,9 @@ data VariableDclr = VariableDclr {
 }
 
 data Type_ = IntType
+           | LongType
            | UIntType
+           | ULongType
            | FunType {
               getParamTypes :: [Type_],
               getRetType :: Type_
@@ -213,6 +218,8 @@ instance Show VariableDclr where
 instance Show Type_ where
   show IntType = "Int"
   show UIntType = "UInt"
+  show LongType = "Long"
+  show ULongType = "ULong"
   show (FunType paramTypes retType) =
     "Fun: param types = " ++ show paramTypes ++ ", return type = " ++ show retType
 

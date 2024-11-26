@@ -1,22 +1,23 @@
+
 module TypedAST(
   module TypedAST,
-  CaseLabel, 
+  CaseLabel,
   Type_ (..),
-  Const_(..), 
-  UnaryOp,  
-  PostOp, 
-  StorageClass(..), 
+  Const_(..),
+  UnaryOp,
+  PostOp,
+  StorageClass(..),
   BinOp
-) 
+)
 where
 
 import Utils
-import AST(CaseLabel, 
-           Type_(..), 
-           Const_(..), 
-           UnaryOp, 
-           PostOp, 
-           StorageClass(..), 
+import AST(CaseLabel,
+           Type_(..),
+           Const_(..),
+           UnaryOp,
+           PostOp,
+           StorageClass(..),
            BinOp)
 
 -- typed AST data structure
@@ -46,7 +47,7 @@ data Stmt = RetStmt {
              getExpr :: Expr
            }
           | IfStmt {
-             getCondition :: Expr, 
+             getCondition :: Expr,
              getIfStmt :: Stmt,
              getElseStmt :: Maybe Stmt
            }
@@ -54,7 +55,7 @@ data Stmt = RetStmt {
              getLabel :: String
            }
           | LabeledStmt {
-             getLabel :: String, 
+             getLabel :: String,
              getStmt :: Stmt
            }
           | CompoundStmt {
@@ -67,31 +68,31 @@ data Stmt = RetStmt {
              getmLabel :: Maybe String
            }
           | WhileStmt {
-             getCondition :: Expr, 
-             getBody :: Stmt, 
+             getCondition :: Expr,
+             getBody :: Stmt,
              getmLabel :: Maybe String
            }
           | DoWhileStmt {
-             getBody :: Stmt, 
+             getBody :: Stmt,
              getCondition :: Expr,
              getmLabel :: Maybe String
            }
           | ForStmt {
-             getForInit :: ForInit, 
+             getForInit :: ForInit,
              mCondition :: Maybe Expr,
              getEnd :: Maybe Expr,
              getBody :: Stmt,
              getmLabel :: Maybe String
            }
           | SwitchStmt {
-             getExpr :: Expr, 
+             getExpr :: Expr,
              getBody :: Stmt,
-             getmLabel :: Maybe String, 
+             getmLabel :: Maybe String,
              getmCases :: Maybe [CaseLabel]
-           } 
+           }
           | CaseStmt {
-             getExpr :: Expr, 
-             getBody :: Stmt, 
+             getExpr :: Expr,
+             getBody :: Stmt,
              getmLabel :: Maybe String
            }
           | DefaultStmt {
@@ -101,7 +102,7 @@ data Stmt = RetStmt {
           | NullStmt
 
 data Expr = Binary {
-             getBinOp :: BinOp, 
+             getBinOp :: BinOp,
              getLeftExpr :: Expr,
              getRightExpr :: Expr,
              getExprType :: Type_
@@ -112,7 +113,7 @@ data Expr = Binary {
              getExprType :: Type_
           }
           | PostAssign {
-             getSrc :: Expr, 
+             getSrc :: Expr,
              getPostOp :: PostOp,
              getExprType :: Type_
           }
@@ -147,9 +148,9 @@ data Expr = Binary {
           deriving (Eq)
 
 data FunctionDclr = FunctionDclr {
-  fName :: String, 
-  fType :: Type_, 
-  fStorage :: Maybe StorageClass, 
+  fName :: String,
+  fType :: Type_,
+  fStorage :: Maybe StorageClass,
   fParams :: [VariableDclr],
   fBody :: Maybe Block
 }
@@ -172,9 +173,11 @@ data IdentAttrs = FunAttr {
 data IdentInit = Tentative | Initial StaticInit | NoInit
   deriving (Show, Eq)
 
-data StaticInit = IntInit {getStaticInit :: Int} 
+data StaticInit = IntInit {getStaticInit :: Int}
                 | UIntInit {getStaticInit :: Int}
-  deriving (Show, Eq)
+                | LongInit {getStaticInit :: Int}
+                | ULongInit {getStaticInit :: Int}
+  deriving (Eq)
 
 -- print the AST in a (hopefully) readable way
 instance Show Prog where
@@ -323,14 +326,21 @@ instance Show Expr where
   show (Cast type_ expr) =
     "Cast(" ++ show expr ++ "," ++ show type_ ++ ")"
 
+instance Show StaticInit where
+  show init_ = show $ getStaticInit init_
+
 intStaticInit :: Type_ -> Int -> IdentInit
 intStaticInit IntType = Initial . IntInit
 intStaticInit UIntType = Initial . UIntInit
+intStaticInit LongType = Initial . LongInit
+intStaticInit ULongType = Initial . ULongInit
 intStaticInit _ = error "Compiler Error: invalid static init"
 
 litExpr :: Int -> Type_ -> Expr
 litExpr i type_ = Lit (typeConstructor i) type_
   where typeConstructor = case type_ of
           IntType -> ConstInt
+          LongType -> ConstLong
           UIntType -> ConstUInt
+          ULongType -> ConstULong
           FunType _ _ -> error "Compiler Error: tried to make literal expr with function type"

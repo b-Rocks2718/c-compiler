@@ -1,6 +1,6 @@
 module TACAST where
 
-import AST (BinOp, UnaryOp, Const_)
+import AST (BinOp, UnaryOp, Const_(..))
 import TypedAST (Type_, SymbolTable, StaticInit)
 import Utils
 
@@ -20,6 +20,9 @@ data TopLevel  = Func {
                   | Comment String
 
 data Instr = Return Val
+           | SignExtend Val Val
+           | Truncate Val Val
+           | ZeroExtend Val Val
            | Unary UnaryOp Val Val -- op dst src
            | Binary BinOp Val Val Val Type_-- op dst scr1 scr2
            | CondJump Condition String
@@ -33,7 +36,6 @@ data Instr = Return Val
 -- temporary variable type
 data Val   = Constant {getConst :: Const_}
            | Var {getVarName :: String}
-           deriving (Show)
 
 data Condition = CondE | CondNE | CondG | CondGE | CondL | CondLE
                | CondA | CondAE | CondB | CondBE
@@ -55,3 +57,7 @@ instance Show TopLevel where
     "\n    StaticVar " ++ show name ++ " " ++
       show global ++ " " ++ show type_ ++ " " ++ show init_
   show (Comment s) = "\n    Comment " ++ show s
+
+instance Show Val where
+  show (Var v) = v
+  show (Constant c) = show $ getConstInt c

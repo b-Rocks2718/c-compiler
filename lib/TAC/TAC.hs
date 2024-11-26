@@ -18,7 +18,7 @@ import AST(
   CaseLabel(..),
   compoundOps,
   relationalOps, UnaryOp (BoolNot))
-import ParserUtils(getCompoundOp)
+import ParserUtils(getCompoundOp, typeSize, isSigned)
 import TACAST
 
 -- initialize global counter here
@@ -47,6 +47,8 @@ symbolToTAC (name, (_, StaticAttr init_ global)) =
   case init_ of
     Initial (IntInit i) -> [StaticVar name global IntType (IntInit i)]
     Initial (UIntInit i) -> [StaticVar name global UIntType (UIntInit i)]
+    Initial (LongInit i) -> [StaticVar name global LongType (LongInit i)]
+    Initial (ULongInit i) -> [StaticVar name global ULongType (ULongInit i)]
     Tentative -> [StaticVar name global IntType (IntInit 0)]
     NoInit -> []
 symbolToTAC _ = []
@@ -279,22 +281,10 @@ relationToCond :: BinOp -> Type_ -> Condition
 relationToCond op type_ = case op of
   BoolEq -> CondE
   BoolNeq -> CondNE
-  BoolGe -> case type_ of
-    IntType -> CondG
-    UIntType -> CondA
-    _ -> error "Compiler Error: invalid type"
-  BoolGeq -> case type_ of
-    IntType -> CondGE
-    UIntType -> CondAE
-    _ -> error "Compiler Error: invalid type"
-  BoolLe -> case type_ of
-    IntType -> CondL
-    UIntType -> CondB
-    _ -> error "Compiler Error: invalid type"
-  BoolLeq -> case type_ of
-    IntType -> CondLE
-    UIntType -> CondBE
-    _ -> error "Compiler Error: invalid type"
+  BoolGe -> if isSigned type_ then CondG else CondA
+  BoolGeq -> if isSigned type_ then CondGE else CondAE
+  BoolLe -> if isSigned type_ then CondL else CondB
+  BoolLeq -> if isSigned type_ then CondLE else CondBE
   _ -> error "Compiler Error: not a relational condition"
 
 relationalToTAC :: String -> BinOp -> TypedAST.Expr -> TypedAST.Expr -> Type_ -> TACState [Instr]
@@ -453,13 +443,19 @@ exprToTAC name expr =
         if type_ == getExprType expr' then
           return [] -- return rslt
         else do
-          -- if typed had multiple sizes, this is where
-          -- you'd truncate or extend
-          -- right now, the only typed are 16 bit signed or unsigned
+          -- extend or truncate
+          let oldType = getExprType expr'
           src <- getDst <$> get
           dst <- makeTemp name type_
           putDst dst
-          return [Copy dst src]
+          if typeSize type_ == typeSize oldType then
+            return [Copy dst src]
+          else if typeSize type_ < typeSize oldType then
+            return [Truncate dst src]
+          else if isSigned type_ then
+            return [SignExtend dst src]
+          else 
+            return [ZeroExtend dst src]
       return (rslt ++ cast)
 
 -- utils

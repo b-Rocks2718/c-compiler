@@ -104,6 +104,7 @@ typeSpecToType spec = case spec of
   IntSpec -> IntType
   SIntSpec -> IntType
   UIntSpec -> UIntType
+  LongSpec -> LongType
 
 parseVariableDclr :: Parser Token VariableDclr
 parseVariableDclr = do
@@ -118,6 +119,7 @@ parseTypeOrStorageClass =
   TypePrefix IntSpec <$ char IntTok <|>
   TypePrefix UIntSpec <$ char UnsignedTok <|>
   TypePrefix SIntSpec <$ char SignedTok <|>
+  TypePrefix LongSpec <$ char LongTok <|>
   StoragePrefix Static <$ char StaticTok <|>
   StoragePrefix Extern <$ char ExternTok
 
@@ -143,8 +145,12 @@ parseTypeAndStorageClass = do
     errorParse $ "Invalid type specifiers: " ++ show types
   else if length storageClasses > 1 then
     errorParse $ "Invalid storage class: " ++ show storageClasses
+  else if UIntSpec `elem` types && LongSpec `elem` types then
+    return (ULongType, safeHead storageClasses)
   else if UIntSpec `elem` types then
     return (UIntType, safeHead storageClasses)
+  else if LongSpec `elem` types then
+    return (LongType, safeHead storageClasses)
   else
     return (IntType, safeHead storageClasses)
 
@@ -157,6 +163,15 @@ parseIntLit = do
   --else
   return (Lit (ConstInt n))
 
+parseLongLit :: Parser Token Expr
+parseLongLit = do
+  n <- intLitVal <$> satisfy isLongLit
+  -- TODO:
+  --if n >= 2 ^ (31 :: Int) then
+  --  errorParse "Constant token is too large to represent as an int"
+  --else
+  return (Lit (ConstLong n))
+
 parseUIntLit :: Parser Token Expr
 parseUIntLit = do
   n <- intLitVal <$> satisfy isUIntLit
@@ -164,7 +179,16 @@ parseUIntLit = do
   --if n >= 2 ^ (16 :: Int) then
   --  errorParse "Constant token is too large to represent as an unsigned int"
   --else
-  return (Lit (ConstInt n))
+  return (Lit (ConstUInt n))
+
+parseULongLit :: Parser Token Expr
+parseULongLit = do
+  n <- intLitVal <$> satisfy isULongLit
+  -- TODO:
+  --if n >= 2 ^ (32 :: Int) then
+  --  errorParse "Constant token is too large to represent as an int"
+  --else
+  return (Lit (ConstULong n))
 
 parseUnary :: Parser Token Expr
 parseUnary = liftA2 Unary
@@ -220,7 +244,9 @@ parseParens = char OpenP *> parseExpr <* char CloseP
 
 parseFactor :: Parser Token Expr
 parseFactor = parseIntLit <|>
+              parseLongLit <|>
               parseUIntLit <|>
+              parseULongLit <|>
               parseCast <|>
               parseUnary <|>
               parsePostIncDec <|>

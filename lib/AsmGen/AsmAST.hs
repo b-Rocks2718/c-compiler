@@ -4,6 +4,7 @@ import AST(UnaryOp, BinOp)
 import TypedAST(StaticInit, Type_)
 import TACAST(Condition)
 
+
 newtype Prog = Prog [TopLevel] deriving (Show)
 data TopLevel = Func String Bool [Instr]
               | StaticVar String Bool StaticInit -- AsmStaticVar name global init

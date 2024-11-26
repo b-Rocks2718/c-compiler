@@ -2,7 +2,7 @@
 module Typechecking where
 
 import Utils
-import ParserUtils ( isFunc )
+import ParserUtils ( isFunc, typeSize, isSigned )
 import SemanticsUtils ( isConst )
 import qualified AST
 import AST(BinOp(..), UnaryOp(..))
@@ -309,6 +309,8 @@ typecheckExpr e = case e of
   AST.Lit c -> case c of
     AST.ConstInt _ -> return (Lit c IntType)
     AST.ConstUInt _ -> return (Lit c UIntType)
+    AST.ConstLong _ -> return (Lit c LongType)
+    AST.ConstULong _ -> return (Lit c ULongType)
   AST.Cast target expr -> do
     rslt <- typecheckExpr expr
     return (Cast target rslt)
@@ -334,5 +336,7 @@ typecheckArgsFold (arg, paramType) args = do
 getCommonType :: Type_ -> Type_ -> Type_
 getCommonType t1 t2
   | t1 == t2 = t1
-  | t1 == IntType = t2
-  | otherwise = t1
+  | typeSize t1 == typeSize t2 = 
+    if isSigned t1 then t2 else t1
+  | typeSize t1 > typeSize t2 = t1
+  | otherwise = t2

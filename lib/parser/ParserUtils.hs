@@ -11,9 +11,17 @@ isIntLit :: Token -> Bool
 isIntLit (IntLit _) = True
 isIntLit _ = False
 
+isLongLit :: Token -> Bool
+isLongLit (LongLit _) = True
+isLongLit _ = False
+
 isUIntLit :: Token -> Bool
 isUIntLit (UIntLit _) = True
 isUIntLit _ = False
+
+isULongLit :: Token -> Bool
+isULongLit (ULongLit _) = True
+isULongLit _ = False
 
 isUnaryOp :: Token -> Bool
 isUnaryOp op = case op of
@@ -146,5 +154,21 @@ getPrec op = case op of
   ShrEqOp -> 1
 
 isFunc :: Type_ -> Bool
-isFunc (FunType _ _ ) = True
+isFunc (FunType _ _) = True
 isFunc _ = False
+
+typeSize :: Type_ -> Int
+typeSize IntType = 1
+typeSize UIntType = 1
+typeSize LongType = 2
+typeSize ULongType = 2
+typeSize (FunType _ _) = 
+  error "Compiler Error: function type does not have size"
+
+isSigned :: Type_ -> Bool
+isSigned IntType = True
+isSigned UIntType = False
+isSigned LongType = True
+isSigned ULongType = False
+isSigned (FunType _ _) = 
+  error "Compiler Error: function type is not signed/unsigned"

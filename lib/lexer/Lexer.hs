@@ -4,7 +4,9 @@ module Lexer where
 import Utils
 
 data Token = IntLit {intLitVal :: Int}
+           | LongLit {intLitVal :: Int}
            | UIntLit {intLitVal :: Int}
+           | ULongLit {intLitVal :: Int}
            | Ident {identName :: String}
            | Void
            | IntTok
@@ -65,6 +67,7 @@ data Token = IntLit {intLitVal :: Int}
            | DefaultTok
            | UnsignedTok
            | SignedTok
+           | LongTok
            deriving (Show, Eq)
 
 spaces :: Parser Char String
@@ -94,8 +97,14 @@ lexEOF = spaces *> Parser f
 lexIntLit :: Parser Char Token
 lexIntLit = IntLit . read <$> lexRegex "[0-9]+\\b"
 
+lexLongLit :: Parser Char Token
+lexLongLit = LongLit . read <$> lexRegex "[0-9]+[lL]\\b"
+
 lexUIntLit :: Parser Char Token
 lexUIntLit = UIntLit . read . init <$> lexRegex "[0-9]+[uU]\\b"
+
+lexULongLit :: Parser Char Token
+lexULongLit = ULongLit . read <$> lexRegex "[0-9]+([lL][uU]|[uU][lL])\\b"
 
 lexIdent :: Parser Char Token
 lexIdent = Ident <$> lexRegex "[a-zA-Z_]\\w*\\b"
@@ -121,6 +130,7 @@ lexToken = -- keywords
            lexConstToken DefaultTok "default\\b" <|>
            lexConstToken UnsignedTok "unsigned\\b" <|>
            lexConstToken SignedTok "signed\\b" <|>
+           lexConstToken LongTok "long\\b" <|>
 
            -- symbols and operators
            lexConstToken Comma "," <|>
