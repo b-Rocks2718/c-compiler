@@ -20,6 +20,7 @@ import AST(
   relationalOps, UnaryOp (BoolNot))
 import ParserUtils(getCompoundOp, typeSize, isSigned)
 import TACAST
+import TACUtils
 
 -- initialize global counter here
 progToTAC :: SymbolTable -> TypedAST.Prog -> (SymbolTable, Prog)
@@ -451,45 +452,12 @@ exprToTAC name expr =
           if typeSize type_ == typeSize oldType then
             return [Copy dst src]
           else if typeSize type_ < typeSize oldType then
-            return [Truncate dst src]
+            undefined
+            --return [Truncate dst src]
           else if isSigned type_ then
-            return [SignExtend dst src]
-          else 
-            return [ZeroExtend dst src]
+            undefined
+            --return [SignExtend dst src]
+          else
+            undefined 
+            --return [ZeroExtend dst src]
       return (rslt ++ cast)
-
--- utils
-
-tacDataInit :: SymbolTable -> TACData
-tacDataInit symbols = TACData (makeConstant IntType 0) symbols 0
-
--- create a unique temporary variable name
-makeTemp :: String -> Type_ -> TACState Val
-makeTemp name type_ = do
-  n <- getN <$> get
-  putN (n + 1)
-  let varName = name ++ ".tmp." ++ show n
-  -- add to symbol table
-  symbols <- getSymbols <$> get
-  putSymbols $ (varName, (type_, LocalAttr)) : symbols
-  return (Var varName)
-
-putDst :: Val -> TACState ()
-putDst dst = do
-  TACData _ symbols n <- get
-  put (TACData dst symbols n)
-
-putSymbols :: SymbolTable -> TACState ()
-putSymbols symbols = do
-  TACData dst _ n <- get
-  put (TACData dst symbols n)
-
-putN :: Int -> TACState ()
-putN n = do
-  TACData dst symbols _ <- get
-  put (TACData dst symbols n)
-
-makeConstant :: Type_ -> Int -> Val
-makeConstant IntType = Constant . ConstInt
-makeConstant UIntType = Constant . ConstUInt
-makeConstant _ = error "Compiler Error: invalid constant"

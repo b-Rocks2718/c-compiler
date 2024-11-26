@@ -20,9 +20,6 @@ data TopLevel  = Func {
                   | Comment String
 
 data Instr = Return Val
-           | SignExtend Val Val
-           | Truncate Val Val
-           | ZeroExtend Val Val
            | Unary UnaryOp Val Val -- op dst src
            | Binary BinOp Val Val Val Type_-- op dst scr1 scr2
            | CondJump Condition String

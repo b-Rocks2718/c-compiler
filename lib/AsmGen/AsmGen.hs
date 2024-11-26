@@ -53,9 +53,6 @@ exprToAsm instr =
             regArgs = take 4 srcs
             stackArgs = drop 4 srcs
             stackList = repeat (Push . tacValToAsm)
-    (TACAST.SignExtend _ _) -> undefined
-    (TACAST.Truncate _ _) -> undefined
-    (TACAST.ZeroExtend _ _) -> undefined
 
 createMaps :: [Instr] -> SymbolTable -> ([(Operand, Operand)], Int)
 createMaps xs symbols = foldr (createMapsFold symbols) ([], -1) (xs >>= getOps)
