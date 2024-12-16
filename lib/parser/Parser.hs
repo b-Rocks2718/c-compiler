@@ -9,8 +9,47 @@ parseProg :: Parser Token Prog
 parseProg = Prog <$> many parseDclr <* parseEOF
 
 parseDclr :: Parser Token Declaration
-parseDclr = FunDclr <$> parseFunction <|>
-            VarDclr <$> parseVariableDclr
+--parseDclr = FunDclr <$> parseFunction <|>
+--            VarDclr <$> parseVariableDclr
+parseDclr = do
+  (baseType, mStorage) <- parseTypeAndStorageClass
+  declarator <- parseDeclarator
+  (name, declType, params) <-
+    case processDeclarator declarator baseType of
+      Ok x -> return x
+      _ -> undefined
+  return undefined
+
+parseDeclarator :: Parser Token Declarator
+parseDeclarator = undefined
+
+processDeclarator :: Declarator -> Type_ -> Result (String, Type_, [String])
+processDeclarator decl baseType = case decl of
+  IdentDec name -> Ok (name, baseType, [])
+  PointerDec d -> 
+    let derived = PointerType baseType
+    in processDeclarator d derived
+  FunDec params d -> case d of
+    IdentDec name -> do
+      (paramNames, types) <- unzip <$> processParamsInfo params
+      let derivedType = FunType types baseType
+      return (name, derivedType, paramNames)
+    _ -> Err "Parse Error: Can't apply additional type derivations to a function type"
+
+processParamInfo :: ParamInfo -> Result (String, Type_)
+processParamInfo (Param type_ d) = do
+  case d of
+    FunDec _ _ -> Err "Parse Error: Function pointers in parameters aren't supported"
+    _ -> return ()
+  (paramName, paramType_, _) <- processDeclarator d type_
+  return (paramName, paramType_)
+
+processParamsInfo :: [ParamInfo] -> Result [(String, Type_)]
+processParamsInfo = 
+  foldr (\p ps -> case processParamInfo p of
+  Ok p' -> liftA2 (:) (Ok p') ps
+  Err s -> Err s
+  Fail -> Fail) (Ok [])
 
 parseFunction :: Parser Token FunctionDclr
 parseFunction = do
@@ -44,9 +83,9 @@ parseParamType :: Parser Token Type_
 parseParamType = do
   types <- some parseTypeSpec
   if hasDuplicates types then
-    errorParse $ "Duplicate type specifiers: " ++ show types
+    errorParse $ "Parse Error: Duplicate type specifiers - " ++ show types
   else if SIntSpec `elem` types && UIntSpec `elem` types then
-    errorParse $ "Invalid type specifiers: " ++ show types
+    errorParse $ "Parser Error: Invalid type specifiers - " ++ show types
   else if UIntSpec `elem` types then
     return UIntType
   else
@@ -138,13 +177,13 @@ parseTypeAndStorageClass :: Parser Token (Type_, Maybe StorageClass)
 parseTypeAndStorageClass = do
   (types, storageClasses) <- parseTypesAndStorageClasses
   if hasDuplicates types then
-    errorParse $ "Duplicate type specifiers: " ++ show types
+    errorParse $ "Parse Error: Duplicate type specifiers - " ++ show types
   else if null types then
     failParse
   else if SIntSpec `elem` types && UIntSpec `elem` types then
-    errorParse $ "Invalid type specifiers: " ++ show types
+    errorParse $ "Parse Error: Invalid type specifiers - " ++ show types
   else if length storageClasses > 1 then
-    errorParse $ "Invalid storage class: " ++ show storageClasses
+    errorParse $ "Parse Error: Invalid storage class - " ++ show storageClasses
   else if UIntSpec `elem` types && LongSpec `elem` types then
     return (ULongType, safeHead storageClasses)
   else if UIntSpec `elem` types then
@@ -287,7 +326,7 @@ parseEOF = Parser f
   where
     f ts
       | null ts = Ok ((), ts)
-      | otherwise = Err $ "Syntax Error: Could not parse " ++ show ts
+      | otherwise = Err $ "Parse Error: Could not parse " ++ show ts
 
 parseDebug :: Parser Token a
 parseDebug = Parser f

@@ -451,13 +451,11 @@ exprToTAC name expr =
           putDst dst
           if typeSize type_ == typeSize oldType then
             return [Copy dst src]
-          else if typeSize type_ < typeSize oldType then
-            undefined
-            --return [Truncate dst src]
-          else if isSigned type_ then
-            undefined
-            --return [SignExtend dst src]
-          else
-            undefined 
-            --return [ZeroExtend dst src]
+          else error "long types not supported yet"
+          --else if typeSize type_ < typeSize oldType then
+          --  return [Truncate dst src]
+          --else if isSigned type_ then
+          --  return [SignExtend dst src]
+          --else
+          --  return [ZeroExtend dst src]
       return (rslt ++ cast)

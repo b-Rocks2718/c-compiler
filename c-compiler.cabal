@@ -78,6 +78,7 @@ library
                       TypedAST,
                       Typechecking,
                       TACAST,
+                      TACUtils,
                       AsmAST
 
     -- LANGUAGE extensions used by modules in this package.

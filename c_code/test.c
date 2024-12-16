@@ -1,15 +1,9 @@
-int main(void) {
-    int foo = 3;
-    int bar = 4;
-    if (foo + bar > 0) {
-        /* Function declaration foo shadows variable foo */
-        int foo(void);
-        bar = foo();
-    }
-    /* Variable foo becomes visible again */
-    return foo + bar;
-}
+/* Cannot declare x as both signed int and unsigned int */
 
-int foo(void) {
-    return 8;
+unsigned x;
+
+int x;
+
+int main(void) {
+    return 0;
 }

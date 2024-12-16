@@ -51,6 +51,21 @@ class Test(unittest.TestCase):
     def test_chapter_10(self):
         self.chapter_n_test(10)
 
+    def test_chapter_11(self):
+        self.chapter_n_test(11)
+
+    def test_chapter_12(self):
+        self.chapter_n_test(12)
+
+    def test_chapter_13(self):
+        self.chapter_n_test(13)
+
+    def test_chapter_14(self):
+        self.chapter_n_test(14)
+      
+    def test_chapter_15(self):
+        self.chapter_n_test(15)
+
     def chapter_n_test(self, n):
         # verify invalid files do not compile
         for directory in glob.glob(f"../writing-a-c-compiler-tests/tests/chapter_{n}/invalid*"):

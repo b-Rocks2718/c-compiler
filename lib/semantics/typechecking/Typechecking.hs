@@ -7,6 +7,7 @@ import SemanticsUtils ( isConst )
 import qualified AST
 import AST(BinOp(..), UnaryOp(..))
 import TypedAST
+import Control.Monad (when)
 
 typecheck :: AST.Prog -> StateT SymbolTable Result (SymbolTable, Prog)
 typecheck (AST.Prog p) = do
@@ -60,8 +61,9 @@ typecheckFileScopeVar (AST.VariableDclr v type_ mStorage mExpr) = do
       Nothing -> return (init_, global) -- no previous declaration for this variable
       Just oldDclr -> case oldDclr of
         (FunType _ _, _) -> lift (Err $ "Function " ++ show v ++ " redeclared as variable")
-        (_, attrs) -> do
+        (oldType, attrs) -> do
           let (oldInit, oldGlobal) = getGlobalVarAttrs attrs
+          when (oldType /= type_) $ lift (Err $ "Conflicting declarations for variable " ++ show v)
           globalResult <- case mStorage of
             Just Extern -> pure oldGlobal -- extern => match storage of previous declaration
             _ ->
@@ -91,7 +93,7 @@ typecheckFunc (AST.FunctionDclr name type_  mStorage params mBody) = do
   case lookup name maps of
     Just (oldType, oldAttrs) -> do
       let (alreadyDefined, oldGlobal) = getFunAttrs oldAttrs
-      if isFunc oldType && oldType /= type_ then 
+      if isFunc oldType && oldType /= type_ then
         if isFunc oldType
           then lift (Err $ "Semantics Error: Incompatible function declarations for " ++ show name ++
             ": " ++ show oldType ++ " /= " ++ show type_)
@@ -314,6 +316,7 @@ typecheckExpr e = case e of
   AST.Cast target expr -> do
     rslt <- typecheckExpr expr
     return (Cast target rslt)
+  AST.AddrOf _ -> undefined
 
 convertExprType :: Expr -> Type_ -> Expr
 convertExprType expr type_ =
@@ -336,7 +339,7 @@ typecheckArgsFold (arg, paramType) args = do
 getCommonType :: Type_ -> Type_ -> Type_
 getCommonType t1 t2
   | t1 == t2 = t1
-  | typeSize t1 == typeSize t2 = 
+  | typeSize t1 == typeSize t2 =
     if isSigned t1 then t2 else t1
   | typeSize t1 > typeSize t2 = t1
   | otherwise = t2

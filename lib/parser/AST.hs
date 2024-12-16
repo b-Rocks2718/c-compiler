@@ -94,6 +94,7 @@ data Expr = Binary {
           | Var String
           | FunctionCall String [Expr]
           | Cast Type_ Expr
+          | AddrOf Expr
           deriving (Eq)
 
 data Const_ = ConstInt {getConstInt :: Int} 
@@ -107,6 +108,12 @@ data CaseLabel = IntCase Int | DefaultCase
 
 data Declaration = VarDclr VariableDclr | FunDclr FunctionDclr
   deriving (Show)
+
+data Declarator = IdentDec String
+                | PointerDec Declarator
+                | FunDec [ParamInfo] Declarator
+
+data ParamInfo = Param Type_ Declarator
 
 data StorageClass = Static | Extern
   deriving (Show, Eq)
@@ -139,6 +146,9 @@ data Type_ = IntType
               getParamTypes :: [Type_],
               getRetType :: Type_
             }
+           | PointerType {
+              getRefType :: Type_
+           }
   deriving (Eq)
 
 data ForInit = InitDclr VariableDclr | InitExpr (Maybe Expr)
@@ -222,6 +232,8 @@ instance Show Type_ where
   show ULongType = "ULong"
   show (FunType paramTypes retType) =
     "Fun: param types = " ++ show paramTypes ++ ", return type = " ++ show retType
+  show (PointerType refType) =
+    show refType ++ "*"
 
 instance Show BlockItem where
   show = showBlockItem 1
@@ -328,3 +340,5 @@ instance Show Expr where
     "FunctionCall(" ++ name ++ ", " ++ show args ++ ")"
   show (Cast type_ expr) =
     "Cast(" ++ show expr ++ "), type=" ++ show type_
+  show (AddrOf expr) =
+    "AddrOf(" ++ show expr ++ ")"
