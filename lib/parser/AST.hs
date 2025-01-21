@@ -95,6 +95,7 @@ data Expr = Binary {
           | FunctionCall String [Expr]
           | Cast Type_ Expr
           | AddrOf Expr
+          | Dereference Expr
           deriving (Eq)
 
 data Const_ = ConstInt {getConstInt :: Int} 
@@ -345,3 +346,5 @@ instance Show Expr where
     "Cast(" ++ show expr ++ "), type=" ++ show type_
   show (AddrOf expr) =
     "AddrOf(" ++ show expr ++ ")"
+  show (Dereference expr) = 
+    "Dereference(" ++ show expr ++ ")"

@@ -250,9 +250,7 @@ resolveExpr expr = case expr of
     rsltRight <- resolveExpr right
     return (Conditional rsltCondition rsltLeft rsltRight)
   Lit n -> return (Lit n)
-  Unary op expr' -> do
-    rslt <- resolveExpr expr'
-    return (Unary op rslt)
+  Unary op expr' -> Unary op <$> resolveExpr expr'
   Var name -> do
     maps <- getFst
     case lookup name maps of
@@ -266,6 +264,8 @@ resolveExpr expr = case expr of
         return (FunctionCall (entryName entry) newArgs)
       Nothing -> lift (Err $ "Semantics Error: Function " ++ show name ++ " has not been declared")
   Cast target expr' -> Cast target <$> resolveExpr expr'
+  AddrOf expr' -> AddrOf <$> resolveExpr expr'
+  Dereference expr' -> Dereference <$> resolveExpr expr'
 
 resolveArgs :: [Expr] -> MapState [Expr]
 resolveArgs = foldr f (return [])
