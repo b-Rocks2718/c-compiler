@@ -113,6 +113,9 @@ data Declarator = IdentDec String
                 | PointerDec Declarator
                 | FunDec [ParamInfo] Declarator
 
+data AbstractDeclarator = AbstractPointer AbstractDeclarator
+                        | AbstractBase
+
 data ParamInfo = Param Type_ Declarator
 
 data StorageClass = Static | Extern

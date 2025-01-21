@@ -5,35 +5,73 @@ import Lexer
 import ParserUtils
 import AST
 
+-- program is just a list of declarations
 parseProg :: Parser Token Prog
 parseProg = Prog <$> many parseDclr <* parseEOF
 
 parseDclr :: Parser Token Declaration
---parseDclr = FunDclr <$> parseFunction <|>
---            VarDclr <$> parseVariableDclr
 parseDclr = do
+  -- base type and storage specifiers are the first part of a declaration
   (baseType, mStorage) <- parseTypeAndStorageClass
+  -- next is the declarator
   declarator <- parseDeclarator
+  -- base type and declarator must be parsed to work out the derived type
   (name, declType, params) <-
     case processDeclarator declarator baseType of
       Ok x -> return x
-      _ -> undefined
-  return undefined
+      Err msg -> errorParse msg
+      Fail -> failParse
+  -- the rest of the declaration is either a function body or expression
+  case declType of
+    FunType _ _ -> FunDclr <$> parseFunction declType mStorage name params
+    _ -> VarDclr <$> parseVariableDclr declType mStorage name
 
 parseDeclarator :: Parser Token Declarator
-parseDeclarator = undefined
+parseDeclarator =
+  char Asterisk *> (PointerDec <$> parseDeclarator) <|> -- pointer
+  parseDirectDeclarator
 
-processDeclarator :: Declarator -> Type_ -> Result (String, Type_, [String])
+parseDirectDeclarator :: Parser Token Declarator
+parseDirectDeclarator = do
+  d <- parseSimpleDeclarator
+  ps <- optional parseParams
+  case ps of
+    Just params -> return $ FunDec params d
+    Nothing -> return d
+
+parseSimpleDeclarator :: Parser Token Declarator
+parseSimpleDeclarator =
+  -- function or variable name
+  IdentDec . identName <$> satisfy isIdent <|>
+  -- declarator can be enclosed in parenthesis
+  char OpenP *> parseDeclarator <* char CloseP
+
+parseParams :: Parser Token [ParamInfo]
+parseParams = char OpenP *>
+    ([] <$ char Void <* char CloseP <|> -- parses f(void) -- parses f(void)
+     -- parses f(void)
+    [] <$ char CloseP <|>               -- parses f()
+    some parseParam)                    -- parses f([params]) 
+
+parseParam :: Parser Token ParamInfo
+parseParam = do
+  type_ <- parseParamType
+  declarator <- parseDeclarator <* (char Comma <|> char CloseP)
+  return (Param type_ declarator)
+
+-- converts declarators and base types into actual types
+processDeclarator :: Declarator -> Type_ -> Result (String, Type_, [VariableDclr])
 processDeclarator decl baseType = case decl of
   IdentDec name -> Ok (name, baseType, [])
-  PointerDec d -> 
-    let derived = PointerType baseType
-    in processDeclarator d derived
+  PointerDec d -> processDeclarator d (PointerType baseType)
   FunDec params d -> case d of
     IdentDec name -> do
       (paramNames, types) <- unzip <$> processParamsInfo params
       let derivedType = FunType types baseType
-      return (name, derivedType, paramNames)
+      -- convert list of names and types to list of 'VariableDclr's
+      let dclrs = getZipList $ (\n t -> VariableDclr n t Nothing Nothing)
+                  <$> ZipList paramNames <*> ZipList types
+      return (name, derivedType, dclrs)
     _ -> Err "Parse Error: Can't apply additional type derivations to a function type"
 
 processParamInfo :: ParamInfo -> Result (String, Type_)
@@ -44,21 +82,20 @@ processParamInfo (Param type_ d) = do
   (paramName, paramType_, _) <- processDeclarator d type_
   return (paramName, paramType_)
 
+-- converts declarators and base types into actual types, 
+-- but for function parameters
 processParamsInfo :: [ParamInfo] -> Result [(String, Type_)]
-processParamsInfo = 
+processParamsInfo =
   foldr (\p ps -> case processParamInfo p of
   Ok p' -> liftA2 (:) (Ok p') ps
   Err s -> Err s
   Fail -> Fail) (Ok [])
 
-parseFunction :: Parser Token FunctionDclr
-parseFunction = do
-  (typeSpec, storageClass) <- parseTypeAndStorageClass
-  name <- identName <$> satisfy isIdent
-  params <- char OpenP *>
-    ([] <$ char Void <* char CloseP <|> [] <$ char CloseP <|> some parseParam)
-  let funType = FunType (vType <$> params) typeSpec
-  FunctionDclr name funType storageClass params <$> parseEndOfFunc
+parseFunction :: Type_ -> Maybe StorageClass -> String -> [VariableDclr] ->
+    Parser Token FunctionDclr
+parseFunction type_ mStorage name params = do
+  let funType = FunType (vType <$> params) type_
+  FunctionDclr name funType mStorage params <$> parseEndOfFunc
 
 parseEndOfFunc :: Parser Token (Maybe Block)
 parseEndOfFunc = do
@@ -66,12 +103,6 @@ parseEndOfFunc = do
   case body of
     Just _ -> return body -- function definition
     Nothing -> Nothing <$ char Semi -- function declaration
-
-parseParam :: Parser Token VariableDclr
-parseParam = do
-  type_ <- parseParamType
-  name <- (identName <$> satisfy isIdent) <* (char Comma <|> char CloseP)
-  return (VariableDclr name type_ Nothing Nothing)
 
 parseTypeSpec :: Parser Token TypeSpecifier
 parseTypeSpec = IntSpec <$ char IntTok <|>
@@ -91,9 +122,11 @@ parseParamType = do
   else
     return IntType
 
+-- a block is a compound statement or function body
 parseBlock :: Parser Token Block
 parseBlock = char OpenB *> (Block <$> many parseBlockItem) <* char CloseB
 
+-- block items are either statements or declarations
 parseBlockItem :: Parser Token BlockItem
 parseBlockItem =
   StmtBlock <$> parseStmt <|>
@@ -120,12 +153,13 @@ parseStmt =
     (optional parseExpr <* char Semi)
     (optional parseExpr <* char CloseP)
     parseStmt (pure Nothing) <|>
-  char SwitchTok *> lift4 SwitchStmt (char OpenP *> parseExpr <* char CloseP) 
+  char SwitchTok *> lift4 SwitchStmt (char OpenP *> parseExpr <* char CloseP)
     parseStmt (pure Nothing) (pure Nothing) <|>
   char CaseTok *> liftA3 CaseStmt (parseExpr <* char Colon) parseStmt (pure Nothing) <|>
   char DefaultTok *> char Colon *> liftA2 DefaultStmt parseStmt (pure Nothing) <|>
   NullStmt <$ char Semi
 
+-- a ForInit could be a declaration or expression
 parseForInit :: Parser Token ForInit
 parseForInit =
   InitDclr <$> parseForDclr <|>
@@ -145,12 +179,11 @@ typeSpecToType spec = case spec of
   UIntSpec -> UIntType
   LongSpec -> LongType
 
-parseVariableDclr :: Parser Token VariableDclr
-parseVariableDclr = do
-  (type_, storageClass) <- parseTypeAndStorageClass
-  name <- identName <$> satisfy isIdent
+-- initializing expression is optional for variable declaration
+parseVariableDclr :: Type_ -> Maybe StorageClass -> String -> Parser Token VariableDclr
+parseVariableDclr type_ mStorage name = do
   expr <- optional (char Equals *> parseExpr) <* char Semi
-  return (VariableDclr name type_ storageClass expr)
+  return (VariableDclr name type_ mStorage expr)
 
 -- parses a type specifier or a storage class
 parseTypeOrStorageClass :: Parser Token DclrPrefix
@@ -235,6 +268,7 @@ parseUnary = liftA2 Unary
               parseFactor <|>
              parsePreIncDec
 
+-- parses ++v or --v
 parsePreIncDec :: Parser Token Expr
 parsePreIncDec = do
   op <- char IncTok <|> char DecTok
@@ -296,13 +330,34 @@ parseFactor = parseIntLit <|>
 
 -- cast / param types are similar in that storage specifiers aren't allowed
 parseCast :: Parser Token Expr
-parseCast = liftA2 Cast
-  (char OpenP *> parseParamType <* char CloseP)
-  parseExpr
+parseCast = do
+  _ <- char OpenP
+  baseType <- parseParamType
+  declarator <- parseAbstractDeclarator
+  _ <- char CloseP
+  expr <- parseExpr
+  let derivedType = processAbstractDeclarator declarator baseType
+  return (Cast derivedType expr)
+
+-- converts abstract declarators and base types into actual types
+-- used for casts to pointer types
+processAbstractDeclarator :: AbstractDeclarator -> Type_ -> Type_
+processAbstractDeclarator decl baseType = case decl of
+  AbstractBase -> baseType
+  AbstractPointer d -> processAbstractDeclarator d (PointerType baseType)
+
+parseAbstractDeclarator :: Parser Token AbstractDeclarator
+parseAbstractDeclarator = 
+  (char Asterisk *> (AbstractPointer <$> parseAbstractDeclarator)) <|>
+  parseDirectAbstractDeclarator <|>
+  pure AbstractBase
+
+parseDirectAbstractDeclarator :: Parser Token AbstractDeclarator
+parseDirectAbstractDeclarator = 
+  char OpenP *> parseAbstractDeclarator <* char CloseP
 
 parseArg :: Parser Token Expr
-parseArg = parseExpr <*
-  (char Comma <|> char CloseP)
+parseArg = parseExpr <* (char Comma <|> char CloseP)
 
 parseVar :: Parser Token Expr
 parseVar = Var . identName <$> satisfy isIdent
@@ -310,6 +365,7 @@ parseVar = Var . identName <$> satisfy isIdent
 parseParenVar :: Parser Token Expr
 parseParenVar = parseVar <|> (char OpenP *> parseParenVar <* char CloseP)
 
+-- parses v++ or v--
 parsePostIncDec :: Parser Token Expr
 parsePostIncDec = do
   v <- parseParenVar
@@ -328,6 +384,7 @@ parseEOF = Parser f
       | null ts = Ok ((), ts)
       | otherwise = Err $ "Parse Error: Could not parse " ++ show ts
 
+-- for debugging
 parseDebug :: Parser Token a
 parseDebug = Parser f
   where

@@ -157,11 +157,13 @@ isFunc :: Type_ -> Bool
 isFunc (FunType _ _) = True
 isFunc _ = False
 
+-- number of 16 bit words needed to store each type
 typeSize :: Type_ -> Int
 typeSize IntType = 1
 typeSize UIntType = 1
 typeSize LongType = 2
 typeSize ULongType = 2
+typeSize (PointerType _) = 1
 typeSize (FunType _ _) = 
   error "Compiler Error: function type does not have size"
 
@@ -170,5 +172,6 @@ isSigned IntType = True
 isSigned UIntType = False
 isSigned LongType = True
 isSigned ULongType = False
+isSigned (PointerType _) = False
 isSigned (FunType _ _) = 
   error "Compiler Error: function type is not signed/unsigned"
