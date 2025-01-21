@@ -145,6 +145,14 @@ data Expr = Binary {
             getExprType :: Type_,
             getFactor :: Expr
           }
+          | AddrOf {
+            getFactor :: Expr,
+            getExprType :: Type_
+          }
+          | Dereference {
+            getFactor :: Expr,
+            getExprType :: Type_
+          }
           deriving (Eq)
 
 data FunctionDclr = FunctionDclr {
@@ -188,7 +196,8 @@ showFunc n (FunctionDclr name type_ storageClass params (Just (Block body))) =
   tabs ++ "FunctionDef(\n" ++ tabs ++ "    name=\"" ++ name ++ "\",\n" ++
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
-  tabs ++ "    params=" ++ show params ++ "\n"++
+  tabs ++ "    params=[\n" ++ concatMap (showParam $ n + 2) params ++
+  tabs ++ "    ]\n" ++
   tabs ++ "    body=[\n" ++
   unlines (showBlockItem (n + 1) <$> body) ++
   tabs ++ "    ]\n" ++
@@ -197,9 +206,18 @@ showFunc n (FunctionDclr name type_ storageClass params (Just (Block body))) =
 showFunc n (FunctionDclr name type_ storageClass params Nothing) =
   tabs ++ "FunctionDclr(\n" ++ tabs ++ "    name=\"" ++ name ++ "\",\n" ++
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
-  tabs ++ "    params=" ++ show params ++ "\n" ++
+  tabs ++ "    params=[\n" ++ concatMap (showParam $ n + 2) params ++
+  tabs ++ "    ]\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
   tabs ++ ")"
+  where tabs = replicate (4 * n) ' '
+
+showParam :: Int -> VariableDclr -> String
+showParam n (VariableDclr v type_ storageClass _) =
+  tabs ++ "VariableDclr(\n" ++ tabs ++ "    name=\"" ++ v ++ "\",\n" ++
+  tabs ++ "    type=" ++ show type_ ++ "\n" ++
+  tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
+  tabs ++ "),\n"
   where tabs = replicate (4 * n) ' '
 
 showVar :: Int -> VariableDclr -> String
@@ -325,6 +343,10 @@ instance Show Expr where
     "FunctionCall(" ++ name ++ ", " ++ show args ++ "," ++ show type_ ++ ")"
   show (Cast type_ expr) =
     "Cast(" ++ show expr ++ "," ++ show type_ ++ ")"
+  show (AddrOf expr type_) =
+    "AddrOf(" ++ show expr ++ ", " ++ show type_ ++ ")"
+  show (Dereference expr type_) = 
+    "Dereference(" ++ show expr ++ ", " ++ show type_ ++ ")"
 
 instance Show StaticInit where
   show init_ = show $ getStaticInit init_
@@ -334,6 +356,7 @@ intStaticInit IntType = Initial . IntInit
 intStaticInit UIntType = Initial . UIntInit
 intStaticInit LongType = Initial . LongInit
 intStaticInit ULongType = Initial . ULongInit
+intStaticInit (PointerType _) = Initial . UIntInit
 intStaticInit _ = error "Compiler Error: invalid static init"
 
 litExpr :: Int -> Type_ -> Expr
@@ -343,4 +366,5 @@ litExpr i type_ = Lit (typeConstructor i) type_
           LongType -> ConstLong
           UIntType -> ConstUInt
           ULongType -> ConstULong
+          PointerType _ -> ConstUInt
           FunType _ _ -> error "Compiler Error: tried to make literal expr with function type"

@@ -217,29 +217,21 @@ resolveFileScopeVarDclr (VariableDclr name type_ mStorage mExpr) = do
 
 resolveExpr :: Expr -> MapState Expr
 resolveExpr expr = case expr of
-  Assign left right -> case left of
-    Var _ -> do
-      rsltLeft <- resolveExpr left
-      rsltRight <- resolveExpr right
-      return (Assign rsltLeft rsltRight)
-    _ -> lift (Err "Semantics Error: Invalid lvalue")
-  PostAssign expr' op -> case expr' of
-    Var _ -> do
-      rsltExpr <- resolveExpr expr'
-      return (PostAssign rsltExpr op)
-    _ -> lift (Err "Semantics Error: Invalid lvalue")
-  Binary PlusEqOp left right -> case left of
-    Var _ -> do
-      rsltLeft <- resolveExpr left
-      rsltRight <- resolveExpr right
-      return (Binary PlusEqOp rsltLeft rsltRight)
-    _ -> lift (Err "Semantics Error: Invalid lvalue")
-  Binary MinusEqOp left right -> case left of
-    Var _ -> do
-      rsltLeft <- resolveExpr left
-      rsltRight <- resolveExpr right
-      return (Binary MinusEqOp rsltLeft rsltRight)
-    _ -> lift (Err "Semantics Error: Invalid lvalue")
+  Assign left right -> do
+    rsltLeft <- resolveExpr left
+    rsltRight <- resolveExpr right
+    return (Assign rsltLeft rsltRight)
+  PostAssign expr' op -> do
+    rsltExpr <- resolveExpr expr'
+    return (PostAssign rsltExpr op)
+  Binary PlusEqOp left right -> do
+    rsltLeft <- resolveExpr left
+    rsltRight <- resolveExpr right
+    return (Binary PlusEqOp rsltLeft rsltRight)
+  Binary MinusEqOp left right -> do
+    rsltLeft <- resolveExpr left
+    rsltRight <- resolveExpr right
+    return (Binary MinusEqOp rsltLeft rsltRight)
   Binary op left right -> do
     rsltLeft <- resolveExpr left
     rsltRight <- resolveExpr right

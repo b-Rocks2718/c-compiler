@@ -23,7 +23,7 @@ parseDclr = do
       Fail -> failParse
   -- the rest of the declaration is either a function body or expression
   case declType of
-    FunType _ _ -> FunDclr <$> parseFunction declType mStorage name params
+    FunType _ retType -> FunDclr <$> parseFunction retType mStorage name params
     _ -> VarDclr <$> parseVariableDclr declType mStorage name
 
 parseDeclarator :: Parser Token Declarator

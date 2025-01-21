@@ -192,7 +192,7 @@ showFunc n (FunctionDclr name type_ storageClass params (Just (Block body))) =
   tabs ++ "FunctionDef(\n" ++ tabs ++ "    name=\"" ++ name ++ "\",\n" ++
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
-  tabs ++ "    params=[\n" ++ concatMap (showVar $ n + 2) params ++ "\n"++
+  tabs ++ "    params=[\n" ++ concatMap (showParam $ n + 2) params ++
   tabs ++ "    ]\n" ++
   tabs ++ "    body=[\n" ++
   unlines (showBlockItem (n + 1) <$> body) ++
@@ -202,7 +202,7 @@ showFunc n (FunctionDclr name type_ storageClass params (Just (Block body))) =
 showFunc n (FunctionDclr name type_ storageClass params Nothing) =
   tabs ++ "FunctionDclr(\n" ++ tabs ++ "    name=\"" ++ name ++ "\",\n" ++
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
-  tabs ++ "    params=[\n" ++ concatMap (showVar $ n + 2) params ++ "\n"++
+  tabs ++ "    params=[\n" ++ concatMap (showParam $ n + 2) params ++
   tabs ++ "    ]\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
   tabs ++ ")"
@@ -221,6 +221,14 @@ showVar n (VariableDclr v type_ storageClass Nothing) =
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
   tabs ++ ")"
+  where tabs = replicate (4 * n) ' '
+
+showParam :: Int -> VariableDclr -> String
+showParam n (VariableDclr v type_ storageClass _) =
+  tabs ++ "VariableDclr(\n" ++ tabs ++ "    name=\"" ++ v ++ "\",\n" ++
+  tabs ++ "    type=" ++ show type_ ++ "\n" ++
+  tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
+  tabs ++ "),\n"
   where tabs = replicate (4 * n) ' '
 
 instance Show FunctionDclr where
@@ -343,7 +351,7 @@ instance Show Expr where
   show (FunctionCall name args) =
     "FunctionCall(" ++ name ++ ", " ++ show args ++ ")"
   show (Cast type_ expr) =
-    "Cast(" ++ show expr ++ "), type=" ++ show type_
+    "Cast(" ++ show expr ++ ", type=" ++ show type_ ++ ")"
   show (AddrOf expr) =
     "AddrOf(" ++ show expr ++ ")"
   show (Dereference expr) = 
