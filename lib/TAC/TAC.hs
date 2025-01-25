@@ -61,59 +61,58 @@ funcToTAC (TypedAST.FunctionDclr name _ _ params mBody) symbols =
       body <- mBodyToTAC name mBody
       case lookup name symbols of
         Just (FunType _ _, attrs) ->
-          return [Func name (TypedAST.isGlobal attrs) (paramTo <$> params) $
+          return [Func name (TypedAST.isGlobal attrs) (paramToTAC <$> params) $
           body ++ [Return (makeConstant IntType 0)]]
         _ -> error "Compiler Error: missing or invalid symbol table entry"
     Nothing -> return []
 
-
 mBodyToTAC :: String -> Maybe TypedAST.Block -> TACState [Instr]
 mBodyToTAC name mBody = case mBody of
-  Just body -> blockTo name body
+  Just body -> blockToTAC name body
   Nothing -> return []
 
-paramTo :: TypedAST.VariableDclr -> String
-paramTo (TypedAST.VariableDclr name _ _ _) = name
+paramToTAC :: TypedAST.VariableDclr -> String
+paramToTAC (TypedAST.VariableDclr name _ _ _) = name
 
-blockTo :: String -> TypedAST.Block -> TACState [Instr]
-blockTo name (TypedAST.Block items) = do
+blockToTAC :: String -> TypedAST.Block -> TACState [Instr]
+blockToTAC name (TypedAST.Block items) = do
   init_ <- get
-  foldl' (blockItemsTo name) (state $ const ([], init_)) items
+  foldl' (blockItemsToTAC name) (state $ const ([], init_)) items
 
-blockItemsTo :: String -> TACState [Instr] ->
+blockItemsToTAC :: String -> TACState [Instr] ->
     TypedAST.BlockItem -> TACState [Instr]
-blockItemsTo name tacState item = case item of
+blockItemsToTAC name tacState item = case item of
   TypedAST.StmtBlock stmt -> do
     instrs <- tacState
     newInstrs <- stmtToTAC name stmt
     return (instrs ++ newInstrs)
   TypedAST.DclrBlock dclr -> do
     instrs <- tacState
-    newInstrs <- localDclrTo name dclr
+    newInstrs <- localDclrToTAC name dclr
     return (instrs ++ newInstrs)
 
-localDclrTo :: String -> TypedAST.Declaration -> TACState [Instr]
-localDclrTo name dclr = case dclr of
-  TypedAST.VarDclr v -> varDclrTo name v
+localDclrToTAC :: String -> TypedAST.Declaration -> TACState [Instr]
+localDclrToTAC name dclr = case dclr of
+  TypedAST.VarDclr v -> varDclrToTAC name v
   TypedAST.FunDclr f -> case f of
     (TypedAST.FunctionDclr _ _ _ _ Nothing) -> return []
     _ -> error "Compiler Error: Local function should have been found by now"
       -- local functions definitions should have been caught by now
 
-varDclrTo :: String -> TypedAST.VariableDclr -> TACState [Instr]
-varDclrTo name (TypedAST.VariableDclr varName type_ mStorage mExpr) = case mExpr of
+varDclrToTAC :: String -> TypedAST.VariableDclr -> TACState [Instr]
+varDclrToTAC name (TypedAST.VariableDclr varName type_ mStorage mExpr) = case mExpr of
   Just expr -> case mStorage of
     Just _ -> pure []
-    Nothing -> exprToTAC name (TypedAST.Assign (TypedAST.Var varName type_) expr type_)
+    Nothing -> fst <$> exprToTACConvert name 
+      (TypedAST.Assign (TypedAST.Var varName type_) expr type_)
   Nothing -> pure []
 
 stmtToTAC :: String -> TypedAST.Stmt -> TACState [Instr]
 stmtToTAC name stmt = case stmt of
   (TypedAST.RetStmt expr) -> do
-    instrs <- exprToTAC name expr
-    dst <- getDst <$> get
+    (instrs, dst) <- exprToTACConvert name expr
     return (instrs ++ [Return dst])
-  (TypedAST.ExprStmt expr) -> exprToTAC name expr
+  (TypedAST.ExprStmt expr) -> fst <$> exprToTACConvert name expr
   (TypedAST.IfStmt condition left right) -> case right of
     Just stmt' -> ifElseToTAC name condition left stmt'
     Nothing -> ifToTAC name condition left
@@ -121,22 +120,22 @@ stmtToTAC name stmt = case stmt of
   (TypedAST.LabeledStmt label stmt') -> do
     instrs <- stmtToTAC name stmt'
     return $ Label label : instrs
-  (TypedAST.CompoundStmt block) -> blockTo name block
+  (TypedAST.CompoundStmt block) -> blockToTAC name block
   (TypedAST.BreakStmt mLabel) -> case mLabel of
     Just label -> return [Jump $ label ++ ".break"]
     Nothing -> error "Compiler Error: Loops should be labeled by now"
   (TypedAST.ContinueStmt mLabel) -> case mLabel of
     Just label -> return [Jump $ label ++ ".continue"]
     Nothing -> error "Compiler Error: Loops should be labeled by now"
-  (TypedAST.DoWhileStmt body condition mLabel) -> doWhileTo name body condition mLabel
-  (TypedAST.WhileStmt condition body mLabel) -> whileTo name condition body mLabel
+  (TypedAST.DoWhileStmt body condition mLabel) -> doWhileToTAC name body condition mLabel
+  (TypedAST.WhileStmt condition body mLabel) -> whileToTAC name condition body mLabel
   (TypedAST.ForStmt init_ condition end body mLabel) -> forToTAC name init_ condition end body mLabel
   (TypedAST.SwitchStmt expr stmt' mLabel cases) -> do
     let label = case mLabel of
           Just l -> l
           Nothing -> error "Compiler Error: Switch statement should be labeled by now"
-    exprInstrs <- exprToTAC name expr
-    casesInstrs <- casesTo label cases
+    (exprInstrs, dst) <- exprToTACConvert name expr
+    casesInstrs <- casesToTAC label cases dst
     stmtInstrs <- stmtToTAC name stmt'
     return (exprInstrs ++ casesInstrs ++ stmtInstrs ++ [Label $ label ++ ".break"])
   (TypedAST.CaseStmt _ stmt' label) -> case label of
@@ -151,27 +150,25 @@ stmtToTAC name stmt = case stmt of
     Nothing -> error "Compiler Error: Default statement should be labeled by now"
   TypedAST.NullStmt -> return []
 
-casesTo :: String -> Maybe [CaseLabel] -> TACState [Instr]
-casesTo label mCases = case mCases of
+casesToTAC :: String -> Maybe [CaseLabel] -> Val -> TACState [Instr]
+casesToTAC label mCases rslt = case mCases of
   Nothing -> error "Compiler Error: cases should be collected by now"
   Just cases -> do
-    instrs <- mapM (caseTo label) cases
+    instrs <- mapM (caseToTAC label rslt) cases
     return (concat instrs ++ [Jump $ label ++ ".break"])
 
-caseTo :: String -> CaseLabel -> TACState [Instr]
-caseTo label (IntCase n) = do
-  rslt <- getDst <$> get
+caseToTAC :: String -> Val -> CaseLabel -> TACState [Instr]
+caseToTAC label rslt (IntCase n) = do
   return [Cmp rslt (Constant (ConstInt n)), CondJump CondE $ label ++ "." ++ show n]
-caseTo label DefaultCase = return [Jump $ label ++ ".default"]
+caseToTAC label _ DefaultCase = return [Jump $ label ++ ".default"]
 
-doWhileTo :: String -> TypedAST.Stmt -> TypedAST.Expr -> Maybe String -> TACState [Instr]
-doWhileTo name body condition mLabel = do
+doWhileToTAC :: String -> TypedAST.Stmt -> TypedAST.Expr -> Maybe String -> TACState [Instr]
+doWhileToTAC name body condition mLabel = do
   let label = case mLabel of
         Just x -> x
         Nothing -> error "Compiler Error: loops should be labeled by now"
   bodyInstrs <- stmtToTAC name body
-  conditionInstrs <- exprToTAC name condition
-  rslt <- getDst <$> get
+  (conditionInstrs, rslt) <- exprToTACConvert name condition
   return ( [Label $ label ++ ".start"] ++
     bodyInstrs ++
     [Label $ label ++ ".continue"] ++
@@ -180,14 +177,13 @@ doWhileTo name body condition mLabel = do
     CondJump CondNE $ label ++ ".start"] ++
     [Label $ label ++ ".break"])
 
-whileTo :: String -> TypedAST.Expr -> TypedAST.Stmt -> Maybe String -> TACState [Instr]
-whileTo name condition body mLabel = do
+whileToTAC :: String -> TypedAST.Expr -> TypedAST.Stmt -> Maybe String -> TACState [Instr]
+whileToTAC name condition body mLabel = do
   let label = case mLabel of
         Just x -> x
         Nothing -> error "Compiler Error: loops should be labeled by now"
   bodyInstrs <- stmtToTAC name body
-  conditionInstrs <- exprToTAC name condition
-  rslt <- getDst <$> get
+  (conditionInstrs, rslt) <- exprToTACConvert name condition
   return ([Label $ label ++ ".continue"] ++
     conditionInstrs ++
     [Cmp rslt (makeConstant IntType 0),
@@ -206,15 +202,14 @@ forToTAC name init_ condition end body mLabel = do
   bodyInstrs <- stmtToTAC name body
   conditionInstrs <- case condition of
     Just c -> do
-      cExprInstrs <- exprToTAC name c
-      rslt <- getDst <$> get
+      (cExprInstrs, rslt) <- exprToTACConvert name c
       return (cExprInstrs ++
             [Cmp rslt (makeConstant IntType 0),
             CondJump CondE $ label ++ ".break"])
     Nothing -> pure []
-  endInstrs <- case end of
+  (endInstrs, _) <- case end of
     Just e -> exprToTAC name e
-    Nothing -> pure []
+    Nothing -> pure ([], PlainOperand $ Constant $ ConstInt 0)
   return (initInstrs ++
     [Label $ label ++ ".start"] ++
     conditionInstrs ++    bodyInstrs ++
@@ -225,16 +220,15 @@ forToTAC name init_ condition end body mLabel = do
 
 initToTAC :: String -> TypedAST.ForInit -> TACState [Instr]
 initToTAC name init_ = case init_ of
-  TypedAST.InitDclr d -> varDclrTo name d
+  TypedAST.InitDclr d -> varDclrToTAC name d
   TypedAST.InitExpr e -> case e of
-    Just expr -> exprToTAC name expr
+    Just expr -> fst <$> exprToTAC name expr
     Nothing -> pure []
 
 ifToTAC :: String -> TypedAST.Expr ->
     TypedAST.Stmt -> TACState [Instr]
 ifToTAC name condition left = do
-  rslt1 <- exprToTAC name condition
-  src1 <- getDst <$> get
+  (rslt1, src1) <- exprToTACConvert name condition
   rslt2 <- stmtToTAC name left
   n <- getN <$> get
   let endStr = name ++ ".end." ++ show n
@@ -248,8 +242,7 @@ ifToTAC name condition left = do
 ifElseToTAC :: String -> TypedAST.Expr ->
     TypedAST.Stmt -> TypedAST.Stmt -> TACState [Instr]
 ifElseToTAC name condition left right = do
-  rslt1 <- exprToTAC name condition
-  src1 <- getDst <$> get
+  (rslt1, src1) <- exprToTACConvert name condition
   rslt2 <- stmtToTAC name left
   n <- getN <$> get
   let elseStr = name ++ ".else." ++ show n
@@ -274,8 +267,7 @@ argsFold :: String -> TACState ([Instr], [Val]) ->
     TypedAST.Expr -> TACState ([Instr], [Val])
 argsFold name oldState expr = do
   (instrs, srcs) <- oldState
-  newInstrs <- exprToTAC name expr
-  src <- getDst <$> get
+  (newInstrs, src) <- exprToTACConvert name expr
   return (instrs ++ newInstrs, srcs ++ [src])
 
 relationToCond :: BinOp -> Type_ -> Condition
@@ -288,37 +280,40 @@ relationToCond op type_ = case op of
   BoolLeq -> if isSigned type_ then CondLE else CondBE
   _ -> error "Compiler Error: not a relational condition"
 
-relationalToTAC :: String -> BinOp -> TypedAST.Expr -> TypedAST.Expr -> Type_ -> TACState [Instr]
+relationalToTAC :: String -> BinOp -> TypedAST.Expr -> TypedAST.Expr -> Type_ -> TACState ([Instr], ExprResult)
 relationalToTAC name op left right type_ = do
-  rslt1 <- exprToTAC name left
-  src1 <- getDst <$> get
-  rslt2 <- exprToTAC name right
-  src2 <- getDst <$> get
+  (rslt1, src1) <- exprToTACConvert name left
+  (rslt2, src2) <- exprToTACConvert name right
   dst <- makeTemp name IntType -- relationals always return int
   n <- getN <$> get
   let endStr = name ++ ".end." ++ show n
-  putDst dst
   putN (n + 1)
   return ([Copy dst (makeConstant IntType 1)] ++
           rslt1 ++ rslt2 ++
           [Cmp src1 src2,
           CondJump (relationToCond op type_) endStr,
           Copy dst (makeConstant IntType 0),
-          Label endStr])
+          Label endStr], PlainOperand dst)
 
-exprToTAC :: String -> TypedAST.Expr -> TACState [Instr]
+exprToTACConvert :: String -> TypedAST.Expr -> TACState ([Instr], Val)
+exprToTACConvert name expr = do
+  (instrs, rslt) <- exprToTAC name expr
+  case rslt of
+    PlainOperand val -> return (instrs, val)
+    DereferencedPointer ptr -> do
+      dst <- makeTemp name (getExprType expr)
+      return (instrs ++ [Load dst ptr], dst)
+
+exprToTAC :: String -> TypedAST.Expr -> TACState ([Instr], ExprResult)
 exprToTAC name expr =
   case expr of
     -- short-circuiting operators
     (TypedAST.Binary BoolAnd left right type_) -> do
-      rslt1 <- exprToTAC name left
-      src1 <- getDst <$> get
-      rslt2 <- exprToTAC name right
-      src2 <- getDst <$> get
+      (rslt1, src1) <- exprToTACConvert name left
+      (rslt2, src2) <- exprToTACConvert name right
       dst <- makeTemp name type_
       n <- getN <$> get
       let endStr = name ++ ".end." ++ show n
-      putDst dst
       putN (n + 1)
       return ([Copy dst (makeConstant IntType 0)] ++
         rslt1 ++
@@ -328,16 +323,13 @@ exprToTAC name expr =
         [Cmp src2 (makeConstant IntType 0),
         CondJump CondE endStr,
         Copy dst (makeConstant IntType 1),
-        Label endStr])
+        Label endStr], PlainOperand dst)
     (TypedAST.Binary BoolOr left right type_) -> do
-      rslt1 <- exprToTAC name left
-      src1 <- getDst <$> get
-      rslt2 <- exprToTAC name right
-      src2 <- getDst <$> get
+      (rslt1, src1) <- exprToTACConvert name left
+      (rslt2, src2) <- exprToTACConvert name right
       dst <- makeTemp name type_
       n <- getN <$> get
       let endStr = name ++ ".end." ++ show n
-      putDst dst
       putN (n + 1)
       return ([Copy dst (makeConstant IntType 1)] ++
               rslt1 ++
@@ -347,55 +339,49 @@ exprToTAC name expr =
               [Cmp src2 (makeConstant IntType 0),
               CondJump CondNE endStr,
               Copy dst (makeConstant IntType 0),
-              Label endStr])
+              Label endStr], PlainOperand dst)
     (TypedAST.Binary op left right type_) -> if op `elem` relationalOps
       then relationalToTAC name op left right (getExprType left)
       else if op `elem` compoundOps
         then do
-          rslt1 <- exprToTAC name left
-          src1 <- getDst <$> get
-          rslt2 <- exprToTAC name right
-          src2 <- getDst <$> get
-          putDst src1 -- compound op stores result back in src1
-          return (rslt1 ++ rslt2 ++ [Binary (getCompoundOp op) src1 src1 src2 type_])
+          (rslt1, src1) <- exprToTACConvert name left
+          (rslt2, src2) <- exprToTACConvert name right
+          -- compound op stores result back in src1
+          return (rslt1 ++ rslt2 ++ [Binary (getCompoundOp op) src1 src1 src2 type_], PlainOperand src1)
       else do
-        rslt1 <- exprToTAC name left
-        src1 <- getDst <$> get
+        (rslt1, src1) <- exprToTACConvert name left
         --dst1 <- makeTemp name
-        rslt2 <- exprToTAC name right
-        src2 <- getDst <$> get
+        (rslt2, src2) <- exprToTACConvert name right
         dst2 <- makeTemp name type_ -- non compound op makes new variable for result
-        putDst dst2 -- possible optimization: use dst1
-        return (rslt1 ++ rslt2 ++ [Binary op dst2 src1 src2 type_])
-    (TypedAST.Assign (TypedAST.Var v _) expr' _) -> do
+        -- possible optimization: return dst1
+        return (rslt1 ++ rslt2 ++ [Binary op dst2 src1 src2 type_], PlainOperand dst2)
+    (TypedAST.Assign left right _) -> do
       -- possible optimization: remove the Copy here, pass dst to expr function
-      rslt <- exprToTAC name expr'
-      src <- getDst <$> get
-      let dst = Var v
-      putDst dst
-      return (rslt ++ [Copy dst src])
-    (TypedAST.Assign {}) -> error "Compiler Error: missed invalid lvalue"
+      (rslt1, lval) <- exprToTAC name left
+      (rslt2, rval) <- exprToTACConvert name right
+      case lval of
+        PlainOperand obj -> 
+          return (rslt1 ++ rslt2 ++ [Copy obj rval], lval)
+        DereferencedPointer ptr -> 
+          return (rslt1 ++ rslt2 ++ [Store ptr rval], PlainOperand rval)
     (TypedAST.PostAssign (TypedAST.Var v _) op type_) -> do
       let src = Var v
       oldVal <- makeTemp name type_
-      putDst oldVal
       let binOp = if op == PostInc then AddOp else SubOp
-      return [Copy oldVal src, Binary binOp src src (makeConstant IntType 1) type_]
+      return ([Copy oldVal src, 
+              Binary binOp src src (makeConstant IntType 1) type_], 
+              PlainOperand oldVal)
     (TypedAST.PostAssign {}) -> error "Compiler Error: missed invalid lvalue"
     (TypedAST.Conditional condition left right type_) -> do
-      rslt1 <- exprToTAC name condition
-      src1 <- getDst <$> get
-      rslt2 <- exprToTAC name left
-      src2 <- getDst <$> get
+      (rslt1, src1) <- exprToTACConvert name condition
+      (rslt2, src2) <- exprToTACConvert name left
       n <- getN <$> get
       let elseStr = name ++ ".else." ++ show n
       putN (n + 1)
-      rslt3 <- exprToTAC name right
-      src3 <- getDst <$> get
+      (rslt3, src3) <- exprToTACConvert name right
       dst <- makeTemp name type_
       n' <- getN <$> get
       let endStr = name ++ ".end." ++ show n'
-      putDst dst
       putN (n' + 1)
       return (rslt1 ++
         [Cmp src1 (makeConstant IntType 0),
@@ -406,51 +392,40 @@ exprToTAC name expr =
          Label elseStr] ++
          rslt3 ++
         [Copy dst src3,
-         Label endStr])
-    (TypedAST.Lit m _) -> do
-      putDst (Constant m)
-      return []
+         Label endStr], PlainOperand dst)
+    (TypedAST.Lit m _) -> return ([], PlainOperand $ Constant m)
     (TypedAST.Unary BoolNot fctr _) -> do
-      rslt1 <- exprToTAC name fctr
-      src1 <- getDst <$> get
+      (rslt1, src1) <- exprToTACConvert name fctr
       dst <- makeTemp name IntType -- bool ops always return int
       n <- getN <$> get
       let endStr = name ++ ".end." ++ show n
-      putDst dst
       putN (n + 1)
       return ([Copy dst (makeConstant IntType 1)] ++
               rslt1 ++
               [Cmp src1 (makeConstant IntType 0),
               CondJump CondE endStr,
               Copy dst (makeConstant IntType 0),
-              Label endStr])
+              Label endStr], PlainOperand dst)
     (TypedAST.Unary op expr' type_) -> do
-      rslt <- exprToTAC name expr'
-      src <- getDst <$> get
+      (rslt, src) <- exprToTACConvert name expr'
       dst <- makeTemp name type_
-      putDst dst
-      return (rslt ++ [Unary op dst src])
-    (TypedAST.Var v _) -> do
-      putDst (Var v)
-      return []
+      return (rslt ++ [Unary op dst src], PlainOperand dst)
+    (TypedAST.Var v _) -> return ([], PlainOperand $ Var v)
     (TypedAST.FunctionCall funcName args type_) -> do
       (rslts, srcs) <- argsToTAC name args
       dst <- makeTemp name type_
-      putDst dst
-      return (rslts ++ [Call funcName dst srcs])
+      return (rslts ++ [Call funcName dst srcs], PlainOperand dst)
     (TypedAST.Cast type_ expr') -> do
-      rslt <- exprToTAC name expr'
-      cast <-
+      (rslt, src) <- exprToTACConvert name expr'
+      (cast, dst) <-
         if type_ == getExprType expr' then
-          return [] -- return rslt
+          return ([], src) -- return rslt
         else do
           -- extend or truncate
           let oldType = getExprType expr'
-          src <- getDst <$> get
           dst <- makeTemp name type_
-          putDst dst
           if typeSize type_ == typeSize oldType then
-            return [Copy dst src]
+            return ([Copy dst src], dst)
           else error "long types not supported yet"
           --else if typeSize type_ < typeSize oldType then
           --  return [Truncate dst src]
@@ -458,4 +433,14 @@ exprToTAC name expr =
           --  return [SignExtend dst src]
           --else
           --  return [ZeroExtend dst src]
-      return (rslt ++ cast)
+      return (rslt ++ cast, PlainOperand dst)
+    (TypedAST.Dereference inner _) -> do
+      (instrs, rslt) <- exprToTACConvert name inner
+      return (instrs, DereferencedPointer rslt)
+    (TypedAST.AddrOf inner type_) -> do
+      (instrs, rslt) <- exprToTAC name inner
+      case rslt of
+        PlainOperand obj -> do
+          dst <- makeTemp name type_
+          return (instrs ++ [GetAddress dst obj], PlainOperand dst)
+        DereferencedPointer ptr -> return (instrs, PlainOperand ptr)

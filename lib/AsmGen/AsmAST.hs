@@ -20,12 +20,13 @@ data Instr = Mov Operand Operand
            | CondJump Condition String
            | Label String
            | Ret -- pop r3, jalr r0 r3
+           | GetAddress Operand Operand
            deriving (Show)
 
 data Operand = Lit Int
              | Reg Reg
              | Pseudo String -- pseudoregister/identifier
-             | Stack Int -- location relative to sp
+             | Memory Reg Int
              | Data String
              deriving (Show, Eq)
 

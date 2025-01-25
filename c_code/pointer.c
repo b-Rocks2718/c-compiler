@@ -1,10 +1,28 @@
 
-int* p;
+unsigned ZERO_CHAR = 48;
 
-int main(int argc, int **argv){
-  int ** x = (int **)1;
-  int * y = (int *)x;
-  x = &y; // this line fails right now, but it shouldn't
-  *y = 2;
-  return 1;
+unsigned putchar (unsigned c);
+
+unsigned print_unisgned(unsigned x){
+  unsigned d = x % 10;
+  x = x / 10;
+  if (x != 0){
+    print_unisgned(x);
+  }
+  putchar(ZERO_CHAR + d);
+}
+
+int test(int a, int* x, int* y){
+  *x = a * a + 10;
+  *y = (*x) * a;
+}
+
+int main(void){
+  int input = 2;
+  int output1 = 0;
+  int output2 = 0;
+  test(input, &output1, &output2);
+  print_unisgned(output1);
+  putchar(10);
+  print_unisgned(output2);
 }

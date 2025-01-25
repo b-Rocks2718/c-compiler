@@ -6,7 +6,7 @@ import TACAST
 import Control.Monad.State
 
 tacDataInit :: SymbolTable -> TACData
-tacDataInit symbols = TACData (makeConstant IntType 0) symbols 0
+tacDataInit symbols = TACData symbols 0
 
 -- create a unique temporary variable name
 makeTemp :: String -> Type_ -> TACState Val
@@ -19,20 +19,15 @@ makeTemp name type_ = do
   putSymbols $ (varName, (type_, LocalAttr)) : symbols
   return (Var varName)
 
-putDst :: Val -> TACState ()
-putDst dst = do
-  TACData _ symbols n <- get
-  put (TACData dst symbols n)
-
 putSymbols :: SymbolTable -> TACState ()
 putSymbols symbols = do
-  TACData dst _ n <- get
-  put (TACData dst symbols n)
+  TACData _ n <- get
+  put (TACData symbols n)
 
 putN :: Int -> TACState ()
 putN n = do
-  TACData dst symbols _ <- get
-  put (TACData dst symbols n)
+  TACData symbols _ <- get
+  put (TACData symbols n)
 
 makeConstant :: Type_ -> Int -> Val
 makeConstant IntType = Constant . ConstInt

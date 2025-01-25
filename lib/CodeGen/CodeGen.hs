@@ -83,31 +83,32 @@ toMachineInstr name instr =
     -- kind of a hack but it seems to work for now
     AsmAST.Mov (Reg r1) (Reg r2) -> [Mov r1 r2]
     AsmAST.Mov (Reg r) (Lit n) -> [Movi r (ImmLit n)]
-    AsmAST.Mov (Stack n) (Reg r) -> [Sw r bp n]
+    AsmAST.Mov (Memory addr n) (Reg r) -> [Sw r addr n]
     AsmAST.Mov (Data v) (Reg r) -> case r of
       R3 -> [Movi R4 (ImmLabel v), Sw r R3 0]
       _ -> [Movi R3 (ImmLabel v), Sw r R3 0]
-    AsmAST.Mov (Reg r) (Stack n) -> [Lw r bp n]
+    AsmAST.Mov (Reg r) (Memory addr n) -> [Lw r addr n]
     AsmAST.Mov (Reg r) (Data v) -> [Movi R3 (ImmLabel v), Lw r R3 0]
     AsmAST.Push (Reg r) -> [Push r]
+    AsmAST.GetAddress (Memory r n) (Memory r' m) -> [Addi R3 r' m, Sw R3 r n]
     _ -> loads ++ operation ++ stores
     where loads = case getSrcs instr of
             [a, b] -> loada ++ loadb
               where loada = case a of
                       Reg R3 -> []
-                      Stack n -> [Lw R3 bp n]
+                      Memory addr n -> [Lw R3 addr n]
                       Lit n -> [Movi R3 (ImmLit n)]
                       Data v -> [Movi R3 (ImmLabel v), Lw R3 R3 0]
                       _ -> error $ "invalid source " ++ show instr
                     loadb = case b of
                       Reg R4 -> []
-                      Stack n -> [Lw R4 bp n]
+                      Memory addr n -> [Lw R4 addr n]
                       Lit n -> [Movi R4 (ImmLit n)]
                       Data v -> [Movi R4 (ImmLabel v), Lw R4 R4 0]
                       _ -> error $ "invalid source " ++ show instr
             [a] -> case a of
               Reg R3 -> []
-              Stack n -> [Lw R3 bp n]
+              Memory addr n -> [Lw R3 addr n]
               Lit n -> [Movi R3 (ImmLit n)]
               Data v -> [Movi R3 (ImmLabel v), Lw R3 R3 0]
               _ -> error $ "invalid source " ++ show instr
@@ -161,7 +162,7 @@ toMachineInstr name instr =
           stores = case getDst instr of
             [a] -> case a of
               Reg R3 -> []
-              Stack n -> [Sw R3 bp n]
+              Memory addr n -> [Sw R3 addr n]
               Data v -> [Movi R4 (ImmLabel v), Sw R3 R4 0]
               _ -> error $ "invalid destination "  ++ show instr
             _ -> []

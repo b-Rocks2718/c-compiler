@@ -176,7 +176,6 @@ data IdentAttrs = FunAttr {
                     isGlobal :: Bool
                   }
                 | LocalAttr
-                deriving (Show)
 
 data IdentInit = Tentative | Initial StaticInit | NoInit
   deriving (Show, Eq)
@@ -368,3 +367,10 @@ litExpr i type_ = Lit (typeConstructor i) type_
           ULongType -> ConstULong
           PointerType _ -> ConstUInt
           FunType _ _ -> error "Compiler Error: tried to make literal expr with function type"
+
+instance Show IdentAttrs where
+  show (FunAttr def global) = 
+    "FunAttr: defined=" ++ show def ++ ", global=" ++ show global
+  show (StaticAttr init_ global) = 
+    "StaticAttr: init=" ++ show init_ ++ ", global=" ++ show global
+  show LocalAttr = "LocalAttr"

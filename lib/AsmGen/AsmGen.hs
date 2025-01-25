@@ -23,7 +23,7 @@ paramsToAsm ps = getZipList (ZipList copyList <*> ZipList ps)
            \s -> Mov (Pseudo s) (Reg R4),
            \s -> Mov (Pseudo s) (Reg R5),
            \s -> Mov (Pseudo s) (Reg R6)] ++
-           ((\n s -> Mov (Pseudo s) (Stack n)) <$> [2..])
+           ((\n s -> Mov (Pseudo s) (Memory bp n)) <$> [2..])
 
 exprToAsm :: TACAST.Instr -> [Instr]
 exprToAsm instr =
@@ -53,6 +53,13 @@ exprToAsm instr =
             regArgs = take 4 srcs
             stackArgs = drop 4 srcs
             stackList = repeat (Push . tacValToAsm)
+    (TACAST.GetAddress dst src) -> [GetAddress (tacValToAsm dst) (tacValToAsm src)]
+    (TACAST.Load dst ptr) -> [Mov (Reg R3) (tacValToAsm ptr),
+                              Mov (Reg R4) (Memory R3 0),
+                              Mov (tacValToAsm dst) (Reg R4)]
+    (TACAST.Store ptr src) -> [Mov (Reg R3) (tacValToAsm ptr),
+                               Mov (Reg R4) (tacValToAsm src),
+                              Mov (Memory R3 0) (Reg R4)]
 
 createMaps :: [Instr] -> SymbolTable -> ([(Operand, Operand)], Int)
 createMaps xs symbols = foldr (createMapsFold symbols) ([], -1) (xs >>= getOps)
@@ -66,7 +73,7 @@ createMapsFold symbols opr (maps, size) =
         Nothing -> case lookup v symbols of
           -- static var is stored in data section, not stack
           Just (_, StaticAttr _ _) -> ((opr, Data v):maps, size)
-          _ -> ((opr, Stack size):maps, size - 1)
+          _ -> ((opr, Memory bp size):maps, size - 1)
     _ -> (maps, size)
 
 getOps :: Instr -> [Operand]
@@ -80,6 +87,7 @@ getSrcs x =
     Binary _ _ b c _ -> [b, c]
     Cmp a b -> [a, b]
     Push a -> [a]
+    GetAddress _ b -> [b]
     _ -> []
 
 getDst :: Instr -> [Operand]
@@ -88,6 +96,7 @@ getDst x =
     Mov a _ -> [a]
     Unary _ a _ -> [a]
     Binary _ a _ _ _ -> [a]
+    GetAddress a _ -> [a]
     _ -> []
 
 -- map identifiers used as src/dst to stack locations
@@ -105,6 +114,7 @@ mapOps f (Unary op a b) = Unary op (f a) (f b)
 mapOps f (Binary op a b c type_) = Binary op (f a) (f b) (f c) type_
 mapOps f (Cmp a b) = Cmp (f a) (f b)
 mapOps f (Push a) = Push (f a)
+mapOps f (GetAddress a b) = GetAddress (f a) (f b)
 mapOps _ x = x
 
 tacValToAsm :: TACAST.Val -> Operand
