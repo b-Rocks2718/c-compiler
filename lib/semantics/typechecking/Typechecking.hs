@@ -49,7 +49,7 @@ getFunAttrs attrs = case attrs of
 typecheckFileScopeVar :: AST.VariableDclr -> StateT SymbolTable Result VariableDclr
 typecheckFileScopeVar (AST.VariableDclr v type_ mStorage mExpr) = do
   (init_, expr) <- case isConst <$> mExpr of
-    Just (Just i) -> if isPointerType type_ && i /= 0 
+    Just (Just i) -> if isPointerType type_ && i /= 0
       then
         lift (Err $ "Semantics Error: invalid pointer initializer for var " ++ show v)
       else
@@ -197,7 +197,10 @@ typecheckStmt stmt = case stmt of
   AST.SwitchStmt expr stmt' label cases -> do
     typedExpr <- typecheckExpr expr
     typedStmt <- typecheckStmt stmt'
-    return (SwitchStmt typedExpr typedStmt label cases)
+    if isArithmeticType $ getExprType typedExpr then
+      return (SwitchStmt typedExpr typedStmt label cases)
+    else
+      lift (Err "Semantics Error: controlling expression of a switch statement must be an integer")
   AST.CaseStmt expr stmt' label -> do
     typedStmt <- typecheckStmt stmt'
     typedExpr <- typecheckExpr expr
@@ -314,7 +317,7 @@ typecheckExpr e = case e of
         else
           commonType)
   AST.Assign left right -> do
-    unless (isLValue left) 
+    unless (isLValue left)
       (lift $ Err "Semantics Error: Cannot assign to non-lvalue")
     typedLeft <- typecheckExpr left
     typedRight <- typecheckExpr right
@@ -368,7 +371,7 @@ typecheckExpr e = case e of
       Nothing -> error $ "Compiler Error: missed variable declaration for " ++ show v
   AST.Unary op expr' -> do
     rslt <- typecheckExpr expr'
-    when (isPointerType (getExprType rslt) && 
+    when (isPointerType (getExprType rslt) &&
           op `elem` [Negate, Complement]) $
       lift (Err "Semantics Error: invalid pointer operation")
     let type_ = if op == BoolNot
@@ -445,10 +448,10 @@ isPointerType :: Type_ -> Bool
 isPointerType (PointerType _) = True
 isPointerType _ = False
 
-isArithmetic :: Type_ -> Bool
-isArithmetic (FunType _ _) = False
-isArithmetic (PointerType _) = False
-isArithmetic _ = True
+isArithmeticType :: Type_ -> Bool
+isArithmeticType (FunType _ _) = False
+isArithmeticType (PointerType _) = False
+isArithmeticType _ = True
 
 getCommonPointerType :: Expr -> Expr -> Result Type_
 getCommonPointerType expr1 expr2
@@ -460,12 +463,12 @@ getCommonPointerType expr1 expr2
         t2 = getExprType expr2
 
 convertByAssignment :: Expr -> Type_ -> Result Expr
-convertByAssignment expr target 
-  | getExprType expr == target = 
+convertByAssignment expr target
+  | getExprType expr == target =
     return expr
-  | isArithmetic (getExprType expr) && isArithmetic target = 
+  | isArithmeticType (getExprType expr) && isArithmeticType target =
     return (convertExprType expr target)
-  | isNullPointerConstant expr && isPointerType target = 
+  | isNullPointerConstant expr && isPointerType target =
     return (convertExprType expr target)
-  | otherwise = 
+  | otherwise =
     Err "Semantics Error: cannot convert type for assignment"
