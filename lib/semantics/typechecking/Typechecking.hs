@@ -197,7 +197,7 @@ typecheckStmt stmt = case stmt of
   AST.SwitchStmt expr stmt' label cases -> do
     typedExpr <- typecheckExpr expr
     typedStmt <- typecheckStmt stmt'
-    if isArithmetic (getExprType typedExpr) then
+    if isArithmeticType (getExprType typedExpr) then
       return (SwitchStmt typedExpr typedStmt label cases)
     else
       lift (Err "Switch condition must have arithmetic type")
