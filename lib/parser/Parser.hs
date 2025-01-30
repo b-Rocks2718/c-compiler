@@ -268,7 +268,7 @@ parseUnary = liftA2 Unary
               parseFactor <|>
              parsePreIncDec <|>
              char Ampersand *> (AddrOf <$> parseExpr) <|>
-             char Asterisk *> (Dereference <$> parseExpr)
+             char Asterisk *> (Dereference <$> (parseUnary <|> parseVar))
 
 -- parses ++v or --v
 parsePreIncDec :: Parser Token Expr

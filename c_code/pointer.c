@@ -18,9 +18,12 @@ int test(int a, int* x, int* y){
 }
 
 int main(void){
-  int input = 2;
+  int input = 3;
   int output1 = 0;
   int output2 = 0;
+  int * x = &input;
+  int ** y = &x;
+  **y = 4000;
   test(input, &output1, &output2);
   print_unisgned(output1);
   putchar(10);

@@ -197,10 +197,10 @@ typecheckStmt stmt = case stmt of
   AST.SwitchStmt expr stmt' label cases -> do
     typedExpr <- typecheckExpr expr
     typedStmt <- typecheckStmt stmt'
-    if isArithmeticType $ getExprType typedExpr then
+    if isArithmetic (getExprType typedExpr) then
       return (SwitchStmt typedExpr typedStmt label cases)
     else
-      lift (Err "Semantics Error: controlling expression of a switch statement must be an integer")
+      lift (Err "Switch condition must have arithmetic type")
   AST.CaseStmt expr stmt' label -> do
     typedStmt <- typecheckStmt stmt'
     typedExpr <- typecheckExpr expr
