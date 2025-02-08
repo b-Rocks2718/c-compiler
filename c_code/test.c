@@ -1,9 +1,7 @@
-/* Cannot declare x as both signed int and unsigned int */
-
-unsigned x;
-
-int x;
-
 int main(void) {
-    return 0;
+  int z = 0;
+  for (signed int i = 0; i < 10; ++i){
+    z += 2 * i;
+  }
+  return z;
 }

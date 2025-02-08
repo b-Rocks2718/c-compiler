@@ -13,18 +13,22 @@ unsigned print_unisgned(unsigned x){
 }
 
 int test(int a, int* x, int* y){
-  *x = a * a + 10;
-  *y = (*x) * a;
+  *x = *x + a;
+  *y = *y + a;
 }
 
 int main(void){
   int input = 3;
-  int output1 = 0;
-  int output2 = 0;
-  int * x = &input;
-  int ** y = &x;
-  **y = 4000;
+  int output1 = 3;
+  int output2 = 4;
+
+  print_unisgned(output1);
+  putchar(10);
+  print_unisgned(output2);
+  putchar(10);
+
   test(input, &output1, &output2);
+  
   print_unisgned(output1);
   putchar(10);
   print_unisgned(output2);

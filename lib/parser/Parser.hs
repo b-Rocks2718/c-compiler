@@ -167,7 +167,7 @@ parseForInit =
 
 parseForDclr :: Parser Token VariableDclr
 parseForDclr = do
-  type_ <- typeSpecToType <$> parseTypeSpec
+  type_ <- parseParamType
   name <- identName <$> satisfy isIdent
   expr <- optional (char Equals *> parseExpr) <* char Semi
   return (VariableDclr name type_ Nothing expr)
