@@ -6,7 +6,7 @@ import TACAST(Condition)
 
 newtype Prog = Prog [TopLevel] deriving (Show)
 data TopLevel = Func String Bool [Instr]
-              | StaticVar String Bool StaticInit -- AsmStaticVar name global init
+              | StaticVar String Bool [StaticInit] -- AsmStaticVar name global init
               | Comment String
 
 data Instr = Mov Operand Operand
@@ -26,6 +26,7 @@ data Instr = Mov Operand Operand
 data Operand = Lit Int
              | Reg Reg
              | Pseudo String -- pseudoregister/identifier
+             | PseudoMem String Int
              | Memory Reg Int
              | Data String
              deriving (Show, Eq)

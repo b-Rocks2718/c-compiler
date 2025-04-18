@@ -15,7 +15,7 @@ data TopLevel  = Func {
                       getName :: String,
                       getGlobal :: Bool,
                       getType :: Type_,
-                      getInit :: StaticInit
+                      getInit :: [StaticInit]
                     }
                   | Comment String
 
@@ -31,6 +31,7 @@ data Instr = Return Val
            | GetAddress Val Val
            | Load Val Val -- dst src_ptr
            | Store Val Val -- dst_ptr src
+           | CopyToOffset Val Val Int -- dst src offset
            deriving (Show)
 
 -- temporary variable type

@@ -2,6 +2,7 @@
 module Lexer where
 
 import Utils
+import Numeric (readHex)
 
 data Token = IntLit {intLitVal :: Int}
            | LongLit {intLitVal :: Int}
@@ -15,6 +16,8 @@ data Token = IntLit {intLitVal :: Int}
            | CloseP
            | OpenB
            | CloseB
+           | OpenS
+           | CloseS
            | Semi
            | Tilde
            | IncTok
@@ -95,7 +98,13 @@ lexEOF = spaces *> Parser f
       | otherwise = Err $ "Syntax Error: Unrecognized token: " ++ [head s]
 
 lexIntLit :: Parser Char Token
-lexIntLit = IntLit . read <$> lexRegex "[0-9]+\\b"
+lexIntLit = lexDecInt <|> lexHexInt
+
+lexDecInt :: Parser Char Token
+lexDecInt = IntLit . read <$> lexRegex "[0-9]+\\b"
+
+lexHexInt :: Parser Char Token
+lexHexInt = IntLit . fst . head . readHex . drop 2 <$> lexRegex "0[xX][0-9a-fA-F]+\\b"
 
 lexLongLit :: Parser Char Token
 lexLongLit = LongLit . read <$> lexRegex "[0-9]+[lL]\\b"
@@ -174,6 +183,8 @@ lexToken = -- keywords
            lexConstToken LessThanEq "<=" <|>
            lexConstToken GreaterThan ">" <|>
            lexConstToken LessThan "<" <|>
+           lexConstToken OpenS "\\[" <|>
+           lexConstToken CloseS "\\]" <|>
 
            -- numbers and identifiers
            lexUIntLit <|>

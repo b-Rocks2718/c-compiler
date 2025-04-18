@@ -140,7 +140,7 @@ resolveStmt stmt = case stmt of
     rsltStmt <- resolveStmt block
     return (SwitchStmt rsltExpr rsltStmt label cases)
   CaseStmt expr stmt' label -> do
-    n <- case isConst expr of
+    n <- case evalConst expr of
       Just m -> return m
       Nothing -> lift (Err "Semantics Error: Case has non-constant value")
     liftA3 CaseStmt (pure $ Lit (ConstInt n)) (resolveStmt stmt') (pure label)
@@ -166,12 +166,12 @@ resolveLocalDclr dclr = case dclr of
     return (FunDclr rslt)
 
 resolveLocalVarDclr :: VariableDclr -> MapState VariableDclr
-resolveLocalVarDclr (VariableDclr name type_ mStorage mExpr) = do
+resolveLocalVarDclr (VariableDclr name type_ mStorage mInit) = do
   maps <- getFst
   case lookup name maps of
     (Just (MapEntry _ True True)) ->
       case mStorage of
-        Just Extern -> return (VariableDclr name type_ mStorage mExpr)
+        Just Extern -> return (VariableDclr name type_ mStorage mInit)
           -- previous declaration has linkage and so does this one; we're good
         _ -> lift (Err $ "Semantics Error: Multiple declarations for variable " ++ show name)
     (Just (MapEntry _ True False)) ->
@@ -181,25 +181,30 @@ resolveLocalVarDclr (VariableDclr name type_ mStorage mExpr) = do
         Just Extern -> do
           let newMaps = replace name (MapEntry name True True) maps
           putFst newMaps
-          return (VariableDclr name type_ mStorage mExpr) -- no need to resolve mExpr, extern => it's a constant 
+          return (VariableDclr name type_ mStorage mInit) -- no need to resolve mExpr, extern => it's a constant 
         _ -> do
           newName <- makeUnique name
           let newMaps = replace name (MapEntry newName True False) maps
           putFst newMaps
-          newExpr <- liftMaybe resolveExpr mExpr
-          return (VariableDclr newName type_ mStorage newExpr)
+          newInit <- liftMaybe resolveVarInit mInit
+          return (VariableDclr newName type_ mStorage newInit)
     Nothing ->
       case mStorage of
         Just Extern -> do
           let newMaps = (name, MapEntry name True False) : maps
           putFst newMaps
-          return (VariableDclr name type_ mStorage mExpr) -- no need to resolve mExpr, extern => it's a constant 
+          return (VariableDclr name type_ mStorage mInit) -- no need to resolve mExpr, extern => it's a constant 
         _ -> do
           newName <- makeUnique name
           let newMaps = (name, MapEntry newName True False) : maps
           putFst newMaps
-          newExpr <- liftMaybe resolveExpr mExpr
-          return (VariableDclr newName type_ mStorage newExpr)
+          newInit <- liftMaybe resolveVarInit mInit
+          return (VariableDclr newName type_ mStorage newInit)
+
+resolveVarInit :: VarInit -> MapState VarInit
+resolveVarInit varInit = case varInit of
+  SingleInit e -> SingleInit <$> resolveExpr e
+  CompoundInit inits -> CompoundInit <$> traverse resolveVarInit inits
 
 resolveFileScopeVarDclr :: VariableDclr -> MapState VariableDclr
 resolveFileScopeVarDclr (VariableDclr name type_ mStorage mExpr) = do
@@ -258,6 +263,7 @@ resolveExpr expr = case expr of
   Cast target expr' -> Cast target <$> resolveExpr expr'
   AddrOf expr' -> AddrOf <$> resolveExpr expr'
   Dereference expr' -> Dereference <$> resolveExpr expr'
+  Subscript left right -> Subscript <$> resolveExpr left <*> resolveExpr right
 
 resolveArgs :: [Expr] -> MapState [Expr]
 resolveArgs = foldr f (return [])

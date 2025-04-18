@@ -3,7 +3,7 @@ module Typechecking where
 
 import Utils
 import ParserUtils ( isFunc, typeSize, isSigned )
-import SemanticsUtils ( isConst )
+import SemanticsUtils ( isInitConst )
 import qualified AST
 import AST(BinOp(..), UnaryOp(..))
 import TypedAST
@@ -47,17 +47,17 @@ getFunAttrs attrs = case attrs of
   LocalAttr -> (False, False)
 
 typecheckFileScopeVar :: AST.VariableDclr -> StateT SymbolTable Result VariableDclr
-typecheckFileScopeVar (AST.VariableDclr v type_ mStorage mExpr) = do
-  (init_, expr) <- case isConst <$> mExpr of
-    Just (Just i) -> if isPointerType type_ && i /= 0
-      then
+typecheckFileScopeVar (AST.VariableDclr v type_ mStorage mInit) = do
+  (init_, expr) <- case isInitConst type_ <$> mInit of
+    Just (Just init_) -> if isPointerType type_ then -- TODO: check for non-null pointers here
         lift (Err $ "Semantics Error: invalid pointer initializer for var " ++ show v)
-      else
-        return (intStaticInit type_ i, Just $ litExpr i type_) -- initializer was a constant
+      else do
+        e <- liftMaybe (typecheckInit type_) mInit
+        return (Initial init_, e) -- initializer was a constant
     Just Nothing -> lift (Err $ "Semantics Error: non-constant initializer for global variable " ++ show v)
     Nothing -> case mStorage of -- no initializer was provided
       Just Extern -> return (NoInit, Nothing)
-      _ -> return (Tentative, Just $ litExpr 0 type_)
+      _ -> return (Tentative, Nothing)
   let global = mStorage /= Just Static
   maps <- get
   (newInit, newGlobal) <-
@@ -93,6 +93,9 @@ typecheckFunc (AST.FunctionDclr name type_  mStorage params mBody) = do
         Just _ -> True
         Nothing -> False
       global = mStorage /= Just Static
+  when (isArrayType type_) $
+    lift (Err $ "Semantics Error: function " ++ show name ++ " returns an array")
+  let newParams = processFunParam <$> params
   maps <- get
   case lookup name maps of
     Just (oldType, oldAttrs) -> do
@@ -116,9 +119,15 @@ typecheckFunc (AST.FunctionDclr name type_  mStorage params mBody) = do
       let attrs = FunAttr hasBody global
       put $ (name, (type_, attrs)) : maps
 
-  typedParams <- typecheckParams params
+  typedParams <- typecheckParams newParams
   typedBody <- liftMaybe typecheckBlock mBody
   return (FunctionDclr name type_ mStorage typedParams typedBody)
+
+processFunParam :: AST.VariableDclr -> AST.VariableDclr
+processFunParam (AST.VariableDclr name varType mStorage mInit) = 
+  case varType of
+    ArrayType type_ _ -> AST.VariableDclr name (PointerType type_) mStorage mInit
+    _ -> AST.VariableDclr name varType mStorage mInit
 
 typecheckParams :: [AST.VariableDclr] -> StateT SymbolTable Result [VariableDclr]
 typecheckParams params = do
@@ -160,7 +169,7 @@ typecheckBlockItem item = case item of
 typecheckStmt :: AST.Stmt -> StateT SymbolTable Result Stmt
 typecheckStmt stmt = case stmt of
   AST.RetStmt expr mFunc -> do
-    typedExpr <- typecheckExpr expr
+    typedExpr <- typecheckAndConvert expr
     maps <- get
     let retType = case lookup (fromJust mFunc) maps of
             (Just (FunType _ type_, _)) -> type_
@@ -169,10 +178,10 @@ typecheckStmt stmt = case stmt of
       Ok v -> return v
       other -> lift other
     return (RetStmt retVal)
-  AST.ExprStmt expr -> ExprStmt <$> typecheckExpr expr
+  AST.ExprStmt expr -> ExprStmt <$> typecheckAndConvert expr
   AST.IfStmt expr stmt1 mStmt2 -> do
     typedStmt2 <- liftMaybe typecheckStmt mStmt2
-    typedExpr <- typecheckExpr expr
+    typedExpr <- typecheckAndConvert expr
     typedStmt1 <- typecheckStmt stmt1
     return (IfStmt typedExpr typedStmt1 typedStmt2)
   AST.GoToStmt label -> return (GoToStmt label)
@@ -181,21 +190,21 @@ typecheckStmt stmt = case stmt of
   AST.BreakStmt label -> return (BreakStmt label)
   AST.ContinueStmt label -> return (ContinueStmt label)
   AST.WhileStmt expr stmt' label -> do
-    typedExpr <- typecheckExpr expr
+    typedExpr <- typecheckAndConvert expr
     typedStmt <- typecheckStmt stmt'
     return (WhileStmt typedExpr typedStmt label)
   AST.DoWhileStmt stmt' expr label -> do
     typedStmt <- typecheckStmt stmt'
-    typedExpr <- typecheckExpr expr
+    typedExpr <- typecheckAndConvert expr
     return (DoWhileStmt typedStmt typedExpr label)
   AST.ForStmt init_ mExpr1 mExpr2 stmt' label -> do
     typedInit <- typecheckForInit init_
-    typedExpr1 <- liftMaybe typecheckExpr mExpr1
-    typedExpr2 <- liftMaybe typecheckExpr mExpr2
+    typedExpr1 <- liftMaybe typecheckAndConvert mExpr1
+    typedExpr2 <- liftMaybe typecheckAndConvert mExpr2
     typedStmt <- typecheckStmt stmt'
     return (ForStmt typedInit typedExpr1 typedExpr2 typedStmt label)
   AST.SwitchStmt expr stmt' label cases -> do
-    typedExpr <- typecheckExpr expr
+    typedExpr <- typecheckAndConvert expr
     typedStmt <- typecheckStmt stmt'
     if isArithmeticType (getExprType typedExpr) then
       return (SwitchStmt typedExpr typedStmt label cases)
@@ -203,7 +212,7 @@ typecheckStmt stmt = case stmt of
       lift (Err "Switch condition must have arithmetic type")
   AST.CaseStmt expr stmt' label -> do
     typedStmt <- typecheckStmt stmt'
-    typedExpr <- typecheckExpr expr
+    typedExpr <- typecheckAndConvert expr
     return (CaseStmt typedExpr typedStmt label)
   AST.DefaultStmt stmt' label -> do
     typedStmt <- typecheckStmt stmt'
@@ -213,7 +222,7 @@ typecheckStmt stmt = case stmt of
 typecheckForInit :: AST.ForInit -> StateT SymbolTable Result ForInit
 typecheckForInit init_ = case init_ of
   AST.InitDclr dclr -> InitDclr <$> typecheckLocalVar dclr
-  AST.InitExpr (Just expr) -> InitExpr . Just <$> typecheckExpr expr
+  AST.InitExpr (Just expr) -> InitExpr . Just <$> typecheckAndConvert expr
   AST.InitExpr Nothing -> return (InitExpr Nothing)
 
 typecheckLocalDclr :: AST.Declaration -> StateT SymbolTable Result Declaration
@@ -225,10 +234,10 @@ getName :: String -> String
 getName = show . takeWhile (/= '.')
 
 typecheckLocalVar :: AST.VariableDclr -> StateT SymbolTable Result VariableDclr
-typecheckLocalVar (AST.VariableDclr v type_ mStorage mExpr) = do
+typecheckLocalVar (AST.VariableDclr v type_ mStorage mInit) = do
   maps <- get
   if mStorage == Just Extern then
-    if isJust mExpr then
+    if isJust mInit then
       lift (Err $ "Initializer on local extern variable declaration for variable " ++ getName v)
     else case lookup v maps of
       Nothing -> do
@@ -241,24 +250,48 @@ typecheckLocalVar (AST.VariableDclr v type_ mStorage mExpr) = do
         else
           lift (Err $ "Conflicting types for variable " ++ getName v)
   else if mStorage == Just Static then
-    case isConst <$> mExpr of
+    case isInitConst type_ <$> mInit of
       Just (Just i) -> do -- the expr was constant, so we're good
-        put $ (v, (type_, StaticAttr (intStaticInit type_ i) False)) : maps
-        return (VariableDclr v type_ mStorage (Just $ litExpr i type_))
+        put $ (v, (type_, StaticAttr (Initial i) False)) : maps
+        e <- liftMaybe (typecheckInit type_) mInit
+        return (VariableDclr v type_ mStorage e)
       Just Nothing -> lift (Err $ "Non -constant initializer on local static variable " ++ getName v)
       Nothing -> do -- there was no expr initializer
-        put $ (v, (type_, StaticAttr (intStaticInit type_ 0) True)) : maps
+        put $ (v, (type_, StaticAttr (Initial $ intStaticInit type_ 0) True)) : maps
         return (VariableDclr v type_ mStorage Nothing)
   else do -- it's a local variable, and we need to typecheck the initializer
     put ((v, (type_, LocalAttr)) : maps)
-    typedExpr <- liftMaybe typecheckExpr mExpr
-    let convertedRightResult = (`convertByAssignment` type_) <$> typedExpr
-    convertedRight <- case convertedRightResult of
-      Just (Ok result) -> return (Just result)
-      Nothing -> return Nothing
-      Just (Err e) -> lift (Err e)
-      Just Fail -> lift Fail
-    return (VariableDclr v type_ mStorage convertedRight)
+    typedInit <- liftMaybe (typecheckInit type_) mInit
+    return (VariableDclr v type_ mStorage typedInit)
+
+typecheckAndConvert :: AST.Expr -> StateT SymbolTable Result Expr
+typecheckAndConvert expr = do
+  typedExpr <- typecheckExpr expr
+  case getExprType typedExpr of
+    ArrayType type_ _ -> return (AddrOf typedExpr (PointerType type_))
+    _ -> return typedExpr
+
+typecheckInit :: Type_ -> AST.VarInit -> StateT SymbolTable Result VarInit
+typecheckInit targetType init_ = case (targetType, init_) of
+  (_, AST.SingleInit expr) -> do
+    typedExpr <- typecheckAndConvert expr
+    let castExpr = convertByAssignment typedExpr targetType
+    case castExpr of
+      Ok e -> return (SingleInit e targetType)
+      _ -> lift (Err "Semantics Error: invalid initializer 1")
+  (ArrayType inner size, AST.CompoundInit inits) -> do
+    when (length inits > size) $ 
+      lift (Err "Semantics Error: initializer list contains too many values")
+    resolved <- traverse (typecheckInit inner) inits
+    -- pad with 0s
+    let padded = take size (resolved ++ repeat (zeroInitializer inner))
+    return (CompoundInit padded targetType)
+  _ -> lift (Err "Semantics Error: invalid initializer 2")
+
+zeroInitializer :: Type_ -> VarInit
+zeroInitializer type_@(ArrayType inner size) =
+  CompoundInit (replicate size (zeroInitializer inner)) type_
+zeroInitializer type_ = SingleInit (litExpr 0 type_) type_
 
 typecheckExpr :: AST.Expr -> StateT SymbolTable Result Expr
 typecheckExpr e = case e of
@@ -266,8 +299,8 @@ typecheckExpr e = case e of
   -- so they are handled slightly differently
   AST.Binary BoolEq left right -> do
     -- typecheck left and right expressions
-    typedLeft <- typecheckExpr left
-    typedRight <- typecheckExpr right
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
     let leftType = getExprType typedLeft
         rightType = getExprType typedRight
         -- figure out the common type to cast to
@@ -283,8 +316,8 @@ typecheckExpr e = case e of
         convertedRight = convertExprType typedRight commonType
     return (Binary BoolEq convertedLeft convertedRight IntType)
   AST.Binary BoolNeq left right -> do
-    typedLeft <- typecheckExpr left
-    typedRight <- typecheckExpr right
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
     let leftType = getExprType typedLeft
         rightType = getExprType typedRight
         commonTypeResult =
@@ -298,16 +331,70 @@ typecheckExpr e = case e of
     let convertedLeft = convertExprType typedLeft commonType
         convertedRight = convertExprType typedRight commonType
     return (Binary BoolNeq convertedLeft convertedRight IntType)
+  AST.Binary AddOp left right -> do
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
+    let leftType = getExprType typedLeft
+        rightType = getExprType typedRight
+    if isArithmeticType leftType && isArithmeticType rightType then do
+      let commonType = getCommonType leftType rightType
+          convertedLeft = convertExprType typedLeft commonType
+          convertedRight = convertExprType typedRight commonType
+      return (Binary AddOp convertedLeft convertedRight commonType)
+    else if (isArithmeticType leftType && isPointerType rightType) ||
+            (isPointerType leftType && isArithmeticType rightType) then
+      return (Binary AddOp typedLeft typedRight leftType)
+    else lift (Err "Semantics Error: Invalid pointer arithmetic")
+  AST.Binary PlusEqOp left right -> do
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
+    let leftType = getExprType typedLeft
+        rightType = getExprType typedRight
+    if isArithmeticType leftType && isArithmeticType rightType then do
+      let commonType = getCommonType leftType rightType
+          convertedLeft = convertExprType typedLeft commonType
+          convertedRight = convertExprType typedRight commonType
+      return (Binary PlusEqOp convertedLeft convertedRight commonType)
+    else if (isArithmeticType leftType && isPointerType rightType) ||
+            (isPointerType leftType && isArithmeticType rightType) then
+      return (Binary PlusEqOp typedLeft typedRight leftType)
+    else lift (Err "Semantics Error: Invalid pointer arithmetic")
+  AST.Binary SubOp left right -> do
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
+    let leftType = getExprType typedLeft
+        rightType = getExprType typedRight
+    if isArithmeticType leftType && isArithmeticType rightType then do
+      let commonType = getCommonType leftType rightType
+          convertedLeft = convertExprType typedLeft commonType
+          convertedRight = convertExprType typedRight commonType
+      return (Binary SubOp convertedLeft convertedRight commonType)
+    else if isPointerType leftType && isArithmeticType rightType then
+      return (Binary SubOp typedLeft typedRight leftType)
+    else lift (Err "Semantics Error: Invalid pointer arithmetic")
+  AST.Binary MinusEqOp left right -> do
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
+    let leftType = getExprType typedLeft
+        rightType = getExprType typedRight
+    if isArithmeticType leftType && isArithmeticType rightType then do
+      let commonType = getCommonType leftType rightType
+          convertedLeft = convertExprType typedLeft commonType
+          convertedRight = convertExprType typedRight commonType
+      return (Binary MinusEqOp convertedLeft convertedRight commonType)
+    else if isPointerType leftType && isArithmeticType rightType then
+      return (Binary MinusEqOp typedLeft typedRight leftType)
+    else lift (Err "Semantics Error: Invalid pointer arithmetic")
   AST.Binary op left right -> do
-    typedLeft <- typecheckExpr left
-    typedRight <- typecheckExpr right
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
     if op == BoolAnd || op == BoolOr
       then return (Binary op typedLeft typedRight AST.IntType)
     else do
       let leftType = getExprType typedLeft
           rightType = getExprType typedRight
       when (isPointerType leftType || isPointerType rightType) $
-        lift (Err "Semantics Error: Unsupported pointer arithmetic")
+        lift (Err "Semantics Error: Invalid pointer arithmetic")
       let commonType = getCommonType leftType rightType
           convertedLeft = convertExprType typedLeft commonType
           convertedRight = convertExprType typedRight commonType
@@ -317,10 +404,10 @@ typecheckExpr e = case e of
         else
           commonType)
   AST.Assign left right -> do
-    unless (isLValue left)
+    typedLeft <- typecheckAndConvert left
+    unless (isLValue typedLeft)
       (lift $ Err "Semantics Error: Cannot assign to non-lvalue")
-    typedLeft <- typecheckExpr left
-    typedRight <- typecheckExpr right
+    typedRight <- typecheckAndConvert right
     -- cast right expr to left expr
     let leftType = getExprType typedLeft
         convertedRightResult = convertByAssignment typedRight leftType
@@ -329,12 +416,12 @@ typecheckExpr e = case e of
       other -> lift other
     return (Assign typedLeft convertedRight leftType)
   AST.PostAssign expr op -> do
-    typedExpr <- typecheckExpr expr
+    typedExpr <- typecheckAndConvert expr
     return (PostAssign typedExpr op (getExprType typedExpr))
   AST.Conditional c left right -> do
-    typedC <- typecheckExpr c
-    typedLeft <- typecheckExpr left
-    typedRight <- typecheckExpr right
+    typedC <- typecheckAndConvert c
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
     -- find common type for left and right expr
     let leftType = getExprType typedLeft
         rightType = getExprType typedRight
@@ -370,7 +457,7 @@ typecheckExpr e = case e of
         type_ -> return (Var v type_)
       Nothing -> error $ "Compiler Error: missed variable declaration for " ++ show v
   AST.Unary op expr' -> do
-    rslt <- typecheckExpr expr'
+    rslt <- typecheckAndConvert expr'
     when (isPointerType (getExprType rslt) &&
           op `elem` [Negate, Complement]) $
       lift (Err "Semantics Error: invalid pointer operation")
@@ -384,19 +471,31 @@ typecheckExpr e = case e of
     AST.ConstLong _ -> return (Lit c LongType)
     AST.ConstULong _ -> return (Lit c ULongType)
   AST.Cast target expr -> do
-    rslt <- typecheckExpr expr
+    when (isArrayType target) $
+      lift (Err "Semantics Error: cannot cast to array type")
+    rslt <- typecheckAndConvert expr
     return (Cast target rslt)
-  AST.AddrOf inner ->
-    if isLValue inner then do
-      typedInner <- typecheckExpr inner
+  AST.AddrOf inner -> do
+    typedInner <- typecheckExpr inner
+    if isLValue typedInner then do
       let referenced = getExprType typedInner
       return (AddrOf typedInner (PointerType referenced))
     else lift (Err $ "Semantics Error: Can't take the address of a non-lvalue " ++ show inner)
   AST.Dereference inner -> do
-    typedInner <- typecheckExpr inner
+    typedInner <- typecheckAndConvert inner
     case getExprType typedInner of
       PointerType referenced -> return (Dereference typedInner referenced)
       _ -> lift (Err $ "Semantics Error: Cannot dereference non-pointer " ++ show inner)
+  AST.Subscript left right -> do
+    typedLeft <- typecheckAndConvert left
+    typedRight <- typecheckAndConvert right
+    let leftType = getExprType typedLeft
+        rightType = getExprType typedRight
+    if isPointerType leftType && isArithmeticType rightType then
+      return (Subscript typedLeft typedRight (getRefType leftType))
+    else if isArithmeticType leftType && isPointerType rightType then
+      return (Subscript typedRight typedLeft (getRefType rightType))
+    else lift (Err "Semantics Error: Invalid subscript use")
 
 convertExprType :: Expr -> Type_ -> Expr
 convertExprType expr type_ =
@@ -412,7 +511,7 @@ typecheckArgsFold :: (AST.Expr, Type_) ->
   StateT SymbolTable Result [Expr] ->
   StateT SymbolTable Result [Expr]
 typecheckArgsFold (arg, paramType) args = do
-  typedArg <- typecheckExpr arg
+  typedArg <- typecheckAndConvert arg
   typedArgs <- args
   convertedArg <- case convertByAssignment typedArg paramType of
     Ok expr -> return expr
@@ -428,10 +527,11 @@ getCommonType t1 t2
   | typeSize t1 > typeSize t2 = t1
   | otherwise = t2
 
-isLValue :: AST.Expr -> Bool
+isLValue :: Expr -> Bool
 isLValue expr = case expr of
-  AST.Var _ -> True
-  AST.Dereference _ -> True
+  Var _ _ -> True
+  Dereference _ _ -> True
+  Subscript {} -> True
   _ -> False
 
 isNullPointerConstant :: Expr -> Bool
@@ -448,9 +548,14 @@ isPointerType :: Type_ -> Bool
 isPointerType (PointerType _) = True
 isPointerType _ = False
 
+isArrayType :: Type_ -> Bool
+isArrayType (ArrayType _ _) = True
+isArrayType _ = False
+
 isArithmeticType :: Type_ -> Bool
 isArithmeticType (FunType _ _) = False
 isArithmeticType (PointerType _) = False
+isArithmeticType (ArrayType _ _) = False
 isArithmeticType _ = True
 
 getCommonPointerType :: Expr -> Expr -> Result Type_
@@ -468,7 +573,7 @@ convertByAssignment expr target
     return expr
   | isArithmeticType (getExprType expr) && isArithmeticType target =
     return (convertExprType expr target)
-  | isNullPointerConstant expr && isPointerType target =
+  | isPointerType (getExprType expr) && isPointerType target = -- TODO: should really only allow this for null pointer constants
     return (convertExprType expr target)
   | otherwise =
     Err "Semantics Error: cannot convert type for assignment"

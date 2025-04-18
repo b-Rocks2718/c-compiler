@@ -13,7 +13,7 @@ unsigned print_unisgned(unsigned x){
 
 unsigned collatz(unsigned x){
   if (x & 1){
-    // if x is odd, return 3*x + 1
+    // if x is odd, return 3 * x + 1
     return x + x + x + 1;
   } else {
     // if x is even, return x/2

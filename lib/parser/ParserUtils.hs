@@ -166,7 +166,8 @@ typeSize ULongType = 2
 typeSize (PointerType _) = 1
 typeSize (FunType _ _) = 
   error "Compiler Error: function type does not have size"
-
+typeSize (ArrayType inner size) = size * typeSize inner
+  
 isSigned :: Type_ -> Bool
 isSigned IntType = True
 isSigned UIntType = False
@@ -175,3 +176,5 @@ isSigned ULongType = False
 isSigned (PointerType _) = False
 isSigned (FunType _ _) = 
   error "Compiler Error: function type is not signed/unsigned"
+isSigned (ArrayType _ _) = 
+  error "Compiler Error: array type is not signed/unsigned"

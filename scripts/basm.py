@@ -54,8 +54,8 @@ if __name__ == "__main__":
         os.system("cargo run -- " + binfile)
     elif "-emu" not in args:
         # copy files to windows side so they can be run by the simulation
-        os.system("cp ~/c-compiler/ROMs/*.bin /mnt/c/Users/brook/risc16")
-        os.system("cp " + binfile + " /mnt/c/Users/brook/risc16/test.bin")
+        os.system("cp ~/c-compiler/ROMs/*.bin /mnt/c/Users/'Brooks Bryant'/risc16")
+        os.system("cp " + binfile + " /mnt/c/Users/'Brooks Bryant'/risc16/test.bin")
 
     if "-out" not in args:
         # remove .out files

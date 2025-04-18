@@ -333,13 +333,13 @@ def generate_opcode(line_num, tokens, labels, label_addresses, address):
         elif operation == ".fill":
             assert len(tokens) == 2, f"Error in line {line_num + 1}: .fill takes one argument"
             opcode += get_imm(line_num, tokens[1], 16, 0, labels, label_addresses)
-        #elif operation == ".space":
-        #    assert len(tokens) == 2, f"Error in line {line_num + 1}: .space takes one argument"
-        #    assert tokens[1].isnumeric(), f"Error in line {line_num + 1}: .space takes an integer argument"
-        #    n = int(tokens[1])
-        #    for _ in range(n):
-        #        opcode += "0000\n"
-        #        return opcode
+        elif operation == ".space":
+            assert len(tokens) == 2, f"Error in line {line_num + 1}: .space takes one argument"
+            assert tokens[1].isnumeric(), f"Error in line {line_num + 1}: .space takes an integer argument"
+            n = int(tokens[1])
+            for _ in range(n):
+                opcode += "0000\n"
+            return opcode
         elif operation == "kpsh":
             # dec sp, then store
             assert len(tokens) == 2, f"Error in line {line_num + 1}: push takes one argument"

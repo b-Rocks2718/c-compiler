@@ -96,9 +96,10 @@ data Expr = Binary {
           | Cast Type_ Expr
           | AddrOf Expr
           | Dereference Expr
+          | Subscript Expr Expr
           deriving (Eq)
 
-data Const_ = ConstInt {getConstInt :: Int} 
+data Const_ = ConstInt {getConstInt :: Int}
             | ConstUInt {getConstInt :: Int}
             | ConstLong {getConstInt :: Int}
             | ConstULong {getConstInt :: Int}
@@ -113,8 +114,10 @@ data Declaration = VarDclr VariableDclr | FunDclr FunctionDclr
 data Declarator = IdentDec String
                 | PointerDec Declarator
                 | FunDec [ParamInfo] Declarator
+                | ArrayDec Declarator Int
 
 data AbstractDeclarator = AbstractPointer AbstractDeclarator
+                        | AbstractArray AbstractDeclarator Int
                         | AbstractBase
 
 data ParamInfo = Param Type_ Declarator
@@ -139,7 +142,7 @@ data VariableDclr = VariableDclr {
   vName :: String,
   vType :: Type_,
   vStorage :: Maybe StorageClass,
-  vExpr :: Maybe Expr
+  vInit :: Maybe VarInit
 }
 
 data Type_ = IntType
@@ -152,6 +155,10 @@ data Type_ = IntType
             }
            | PointerType {
               getRefType :: Type_
+           }
+           | ArrayType {
+              getItemType :: Type_,
+              getSize :: Int
            }
   deriving (Eq)
 
@@ -174,6 +181,9 @@ data BinOp = SubOp | AddOp | MulOp | DivOp | ModOp |
 
 data PostOp = PostInc | PostDec
   deriving (Eq, Show)
+
+data VarInit = SingleInit Expr
+             | CompoundInit [VarInit]
 
 compoundOps :: [BinOp]
 compoundOps = [PlusEqOp, MinusEqOp, TimesEqOp, DivEqOp, ModEqOp,
@@ -209,11 +219,11 @@ showFunc n (FunctionDclr name type_ storageClass params Nothing) =
   where tabs = replicate (4 * n) ' '
 
 showVar :: Int -> VariableDclr -> String
-showVar n (VariableDclr v type_ storageClass (Just expr)) =
+showVar n (VariableDclr v type_ storageClass (Just varInit)) =
   tabs ++ "VariableDclr(\n" ++ tabs ++ "    name=\"" ++ v ++ "\",\n" ++
   tabs ++ "    type=" ++ show type_ ++ "\n" ++
   tabs ++ "    storage class=" ++ show storageClass ++ "\n" ++
-  tabs ++ "    init=" ++ show expr ++ "\n" ++
+  tabs ++ "    init=" ++ show varInit ++ "\n" ++
   tabs ++ ")"
   where tabs = replicate (4 * n) ' '
 showVar n (VariableDclr v type_ storageClass Nothing) =
@@ -246,6 +256,8 @@ instance Show Type_ where
     "Fun: param types = " ++ show paramTypes ++ ", return type = " ++ show retType
   show (PointerType refType) =
     show refType ++ "*"
+  show (ArrayType itemType size) =
+    show itemType ++ "[" ++ show size ++ "]"
 
 instance Show BlockItem where
   show = showBlockItem 1
@@ -354,5 +366,12 @@ instance Show Expr where
     "Cast(" ++ show expr ++ ", type=" ++ show type_ ++ ")"
   show (AddrOf expr) =
     "AddrOf(" ++ show expr ++ ")"
-  show (Dereference expr) = 
+  show (Dereference expr) =
     "Dereference(" ++ show expr ++ ")"
+  show (Subscript left right) =
+    "Subscript(" ++ show left ++ ", " ++ show right ++ ")"
+
+instance Show VarInit where
+  show (SingleInit expr) = show expr
+  show (CompoundInit inits) =
+    "{" ++ intercalate "," (show <$> inits) ++ "}"

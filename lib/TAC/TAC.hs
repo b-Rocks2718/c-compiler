@@ -11,6 +11,10 @@ import TypedAST(
   isGlobal,
   getExprType
   )
+import Typechecking (
+  isArithmeticType,
+  isPointerType
+  )
 import AST(
   Type_(..),
   BinOp(..),
@@ -44,14 +48,11 @@ fileScopeDclrToTAC symbols dclr = case dclr of
 -- takes an element of the symbol table, returns a global var or empty list
 symbolToTAC :: (String, (Type_, IdentAttrs)) -> [TopLevel]
 symbolToTAC (_, (FunType {}, _)) = []
-symbolToTAC (name, (_, StaticAttr init_ global)) =
+symbolToTAC (name, (type_, StaticAttr init_ global)) =
   case init_ of
-    Initial (IntInit i) -> [StaticVar name global IntType (IntInit i)]
-    Initial (UIntInit i) -> [StaticVar name global UIntType (UIntInit i)]
-    Initial (LongInit i) -> [StaticVar name global LongType (LongInit i)]
-    Initial (ULongInit i) -> [StaticVar name global ULongType (ULongInit i)]
-    Tentative -> [StaticVar name global IntType (IntInit 0)]
+    Tentative -> [StaticVar name global IntType [ZeroInit (typeSize type_)]]
     NoInit -> []
+    Initial vs -> [StaticVar name global IntType vs]
 symbolToTAC _ = []
 
 funcToTAC :: TypedAST.FunctionDclr -> SymbolTable -> TACState [TopLevel]
@@ -101,11 +102,33 @@ localDclrToTAC name dclr = case dclr of
 
 varDclrToTAC :: String -> TypedAST.VariableDclr -> TACState [Instr]
 varDclrToTAC name (TypedAST.VariableDclr varName type_ mStorage mExpr) = case mExpr of
-  Just expr -> case mStorage of
-    Just _ -> pure []
-    Nothing -> fst <$> exprToTACConvert name 
-      (TypedAST.Assign (TypedAST.Var varName type_) expr type_)
+  Just init_ ->
+    case init_ of
+      TypedAST.SingleInit expr _ -> case mStorage of
+        Just _ -> pure []
+        Nothing -> fst <$> exprToTACConvert name
+          (TypedAST.Assign (TypedAST.Var varName type_) expr type_)
+      TypedAST.CompoundInit inits arrType -> arrayInitTAC name varName inits arrType 0
   Nothing -> pure []
+
+arrayInitTAC :: String -> String -> [TypedAST.VarInit] -> Type_ -> Int -> TACState [Instr]
+arrayInitTAC name vName inits type_ n = do
+  symbols <- gets getSymbols
+  putSymbols $ (vName, (type_, LocalAttr)) : symbols
+  let dst = Var vName
+  case inits of
+    x : xs -> do
+      case x of
+        TypedAST.SingleInit expr inner -> do
+          instrs <- arrayInitTAC name vName xs type_ (n + typeSize inner)
+          (instrs2, rslt) <- exprToTAC name expr
+          let src = getVal rslt
+          return $ instrs2 ++ (CopyToOffset dst src (n * typeSize inner) : instrs)
+        TypedAST.CompoundInit comp inner -> do
+          instrs <- arrayInitTAC name vName xs type_ (n + typeSize inner)
+          instrs2 <- arrayInitTAC name vName comp inner n
+          return $ instrs2 ++  instrs
+    [] -> return []
 
 stmtToTAC :: String -> TypedAST.Stmt -> TACState [Instr]
 stmtToTAC name stmt = case stmt of
@@ -340,6 +363,60 @@ exprToTAC name expr =
               CondJump CondNE endStr,
               Copy dst (makeConstant IntType 0),
               Label endStr], PlainOperand dst)
+    (TypedAST.Binary AddOp left right type_) ->
+      if isArithmeticType (getExprType left) && isArithmeticType (getExprType right) then do
+        (rslt1, src1) <- exprToTACConvert name left
+        --dst1 <- makeTemp name
+        (rslt2, src2) <- exprToTACConvert name right
+        dst2 <- makeTemp name type_ -- non compound op makes new variable for result
+        -- possible optimization: return dst1
+        return (rslt1 ++ rslt2 ++ [Binary AddOp dst2 src1 src2 type_], PlainOperand dst2)
+      else if isArithmeticType (getExprType left) && isPointerType (getExprType right) then do
+        (rslt1, src1) <- exprToTACConvert name left
+        --dst1 <- makeTemp name
+        (rslt2, src2) <- exprToTACConvert name right
+        dst2 <- makeTemp name type_
+        dst3 <- makeTemp name type_ -- non compound op makes new variable for result
+        -- possible optimization: return dst1
+        let refType = getRefType $ getExprType right
+        let leftType = getExprType left
+        return (rslt1 ++ rslt2 ++
+          [ Binary MulOp dst2 src1 (makeConstant leftType $ typeSize refType) leftType,
+            Binary AddOp dst3 dst2 src2 type_], PlainOperand dst3)
+      else if isPointerType (getExprType left) && isArithmeticType (getExprType right) then do
+        (rslt1, src1) <- exprToTACConvert name left
+        --dst1 <- makeTemp name
+        (rslt2, src2) <- exprToTACConvert name right
+        dst2 <- makeTemp name type_
+        dst3 <- makeTemp name type_ -- non compound op makes new variable for result
+        -- possible optimization: return dst1
+        let refType = getRefType $ getExprType left
+        let rightType = getExprType right
+        return (rslt1 ++ rslt2 ++
+          [ Binary MulOp dst2 src2 (makeConstant rightType $ typeSize refType) rightType,
+            Binary AddOp dst3 src1 dst2 type_], PlainOperand dst3)
+      else return $ error "Compiler Error: invalid add made it past typechecking"
+    (TypedAST.Binary SubOp left right type_) -> do
+      if isArithmeticType (getExprType left) && isArithmeticType (getExprType right) then do
+        (rslt1, src1) <- exprToTACConvert name left
+        --dst1 <- makeTemp name
+        (rslt2, src2) <- exprToTACConvert name right
+        dst2 <- makeTemp name type_ -- non compound op makes new variable for result
+        -- possible optimization: return dst1
+        return (rslt1 ++ rslt2 ++ [Binary SubOp dst2 src1 src2 type_], PlainOperand dst2)
+      else if isPointerType (getExprType left) && isArithmeticType (getExprType right) then do
+        (rslt1, src1) <- exprToTACConvert name left
+        --dst1 <- makeTemp name
+        (rslt2, src2) <- exprToTACConvert name right
+        dst2 <- makeTemp name type_
+        dst3 <- makeTemp name type_ -- non compound op makes new variable for result
+        -- possible optimization: return dst1
+        let refType = getRefType $ getExprType left
+        let rightType = getExprType right
+        return (rslt1 ++ rslt2 ++
+          [ Binary MulOp dst2 src2 (makeConstant rightType $ typeSize refType) rightType,
+            Binary SubOp dst3 src1 dst2 type_], PlainOperand dst3)
+      else return $ error "Compiler Error: invalid add made it past typechecking"
     (TypedAST.Binary op left right type_) -> if op `elem` relationalOps
       then relationalToTAC name op left right (getExprType left)
       else if op `elem` compoundOps
@@ -360,16 +437,16 @@ exprToTAC name expr =
       (rslt1, lval) <- exprToTAC name left
       (rslt2, rval) <- exprToTACConvert name right
       case lval of
-        PlainOperand obj -> 
+        PlainOperand obj ->
           return (rslt1 ++ rslt2 ++ [Copy obj rval], lval)
-        DereferencedPointer ptr -> 
+        DereferencedPointer ptr ->
           return (rslt1 ++ rslt2 ++ [Store ptr rval], PlainOperand rval)
     (TypedAST.PostAssign (TypedAST.Var v _) op type_) -> do
       let src = Var v
       oldVal <- makeTemp name type_
       let binOp = if op == PostInc then AddOp else SubOp
-      return ([Copy oldVal src, 
-              Binary binOp src src (makeConstant IntType 1) type_], 
+      return ([Copy oldVal src,
+              Binary binOp src src (makeConstant IntType 1) type_],
               PlainOperand oldVal)
     (TypedAST.PostAssign {}) -> error "Compiler Error: missed invalid lvalue"
     (TypedAST.Conditional condition left right type_) -> do
@@ -444,3 +521,18 @@ exprToTAC name expr =
           dst <- makeTemp name type_
           return (instrs ++ [GetAddress dst obj], PlainOperand dst)
         DereferencedPointer ptr -> return (instrs, PlainOperand ptr)
+    (TypedAST.Subscript left right type_) ->
+      -- TODO: maybe optimize this
+      if isPointerType (getExprType left) && isArithmeticType (getExprType right) then do
+        (rslt1, src1) <- exprToTACConvert name left
+        --dst1 <- makeTemp name
+        (rslt2, src2) <- exprToTACConvert name right
+        dst2 <- makeTemp name type_
+        dst3 <- makeTemp name type_
+        -- possible optimization: return dst1
+        let refType = getRefType $ getExprType left
+        let rightType = getExprType right
+        return (rslt1 ++ rslt2 ++
+          [ Binary MulOp dst2 src2 (makeConstant rightType $ typeSize refType) rightType,
+            Binary AddOp dst3 src1 dst2 type_], DereferencedPointer dst3)
+      else return $ error "Compiler Error: invalid add made it past typechecking"

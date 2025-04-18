@@ -30,8 +30,19 @@ data VariableDclr = VariableDclr {
   vName :: String,
   vType :: Type_,
   vStorage :: Maybe StorageClass,
-  vExpr :: Maybe Expr
+  vExpr :: Maybe VarInit
 }
+
+data FunctionDclr = FunctionDclr {
+  fName :: String,
+  fType :: Type_,
+  fStorage :: Maybe StorageClass,
+  fParams :: [VariableDclr],
+  fBody :: Maybe Block
+}
+
+data VarInit = SingleInit Expr Type_
+             | CompoundInit [VarInit] Type_
 
 data BlockItem = StmtBlock Stmt | DclrBlock Declaration
 
@@ -153,15 +164,12 @@ data Expr = Binary {
             getFactor :: Expr,
             getExprType :: Type_
           }
+          | Subscript {
+            getFactor1 :: Expr,
+            getFactor2 :: Expr,
+            getExprType :: Type_
+          }
           deriving (Eq)
-
-data FunctionDclr = FunctionDclr {
-  fName :: String,
-  fType :: Type_,
-  fStorage :: Maybe StorageClass,
-  fParams :: [VariableDclr],
-  fBody :: Maybe Block
-}
 
 -- types used for typechecking:
 
@@ -177,13 +185,14 @@ data IdentAttrs = FunAttr {
                   }
                 | LocalAttr
 
-data IdentInit = Tentative | Initial StaticInit | NoInit
+data IdentInit = Tentative | Initial [StaticInit] | NoInit
   deriving (Show, Eq)
 
 data StaticInit = IntInit {getStaticInit :: Int}
                 | UIntInit {getStaticInit :: Int}
                 | LongInit {getStaticInit :: Int}
                 | ULongInit {getStaticInit :: Int}
+                | ZeroInit {words :: Int}
   deriving (Eq)
 
 -- print the AST in a (hopefully) readable way
@@ -346,17 +355,20 @@ instance Show Expr where
     "AddrOf(" ++ show expr ++ ", " ++ show type_ ++ ")"
   show (Dereference expr type_) = 
     "Dereference(" ++ show expr ++ ", " ++ show type_ ++ ")"
+  show (Subscript left right type_) =
+    "Subscript(" ++ show left ++ ", " ++ show right ++ ", " ++ show type_ ++ ")"
 
 instance Show StaticInit where
+  show (ZeroInit n) = ".space " ++ show n
   show init_ = show $ getStaticInit init_
 
-intStaticInit :: Type_ -> Int -> IdentInit
-intStaticInit IntType = Initial . IntInit
-intStaticInit UIntType = Initial . UIntInit
-intStaticInit LongType = Initial . LongInit
-intStaticInit ULongType = Initial . ULongInit
-intStaticInit (PointerType _) = Initial . UIntInit
-intStaticInit _ = error "Compiler Error: invalid static init"
+intStaticInit :: Type_ -> Int -> [StaticInit]
+intStaticInit IntType n = [IntInit n]
+intStaticInit UIntType n = [UIntInit n]
+intStaticInit LongType n = [LongInit n]
+intStaticInit ULongType n = [ULongInit n]
+intStaticInit (PointerType _) n = [UIntInit n]
+intStaticInit _ _ = error "Compiler Error: invalid integer static init"
 
 litExpr :: Int -> Type_ -> Expr
 litExpr i type_ = Lit (typeConstructor i) type_
@@ -367,6 +379,7 @@ litExpr i type_ = Lit (typeConstructor i) type_
           ULongType -> ConstULong
           PointerType _ -> ConstUInt
           FunType _ _ -> error "Compiler Error: tried to make literal expr with function type"
+          ArrayType _ _ -> error "Compiler Error: tried to make literal expr with array type"
 
 instance Show IdentAttrs where
   show (FunAttr def global) = 
@@ -374,3 +387,8 @@ instance Show IdentAttrs where
   show (StaticAttr init_ global) = 
     "StaticAttr: init=" ++ show init_ ++ ", global=" ++ show global
   show LocalAttr = "LocalAttr"
+
+instance Show VarInit where
+  show (SingleInit expr _) = show expr
+  show (CompoundInit inits _) =
+    "{" ++ intercalate "," (show <$> inits) ++ "}"

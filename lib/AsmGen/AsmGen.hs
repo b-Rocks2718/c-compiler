@@ -38,11 +38,11 @@ exprToAsm instr =
     (TACAST.Cmp val1 val2) -> [Cmp (tacValToAsm val1) (tacValToAsm val2)]
     (TACAST.Jump label) -> [Jump label]
     (TACAST.Label s) -> [Label s]
-    (TACAST.Call name dst srcs) -> 
+    (TACAST.Call name dst srcs) ->
       -- push in reverse order
       getZipList (ZipList stackList <*> ZipList (reverse stackArgs)) ++
       getZipList (ZipList regList <*> ZipList regArgs) ++
-      [Call name, 
+      [Call name,
       AllocateStack (length stackArgs), -- deallocate stack
       Mov (tacValToAsm dst) (Reg R3)]
       where regList =
@@ -60,6 +60,7 @@ exprToAsm instr =
     (TACAST.Store ptr src) -> [Mov (Reg R3) (tacValToAsm ptr),
                                Mov (Reg R4) (tacValToAsm src),
                               Mov (Memory R3 0) (Reg R4)]
+    (TACAST.CopyToOffset dst src offset) -> [Mov (makePseudoMem dst offset) (tacValToAsm src)]
 
 createMaps :: [Instr] -> SymbolTable -> ([(Operand, Operand)], Int)
 createMaps xs symbols = foldr (createMapsFold symbols) ([], -1) (xs >>= getOps)
@@ -67,7 +68,14 @@ createMaps xs symbols = foldr (createMapsFold symbols) ([], -1) (xs >>= getOps)
 createMapsFold :: SymbolTable -> Operand -> ([(Operand, Operand)], Int) -> ([(Operand, Operand)], Int)
 createMapsFold symbols opr (maps, size) =
   case opr of
-    (Pseudo v) -> 
+    (Pseudo v) ->
+      case lookup opr maps of
+        (Just _) -> (maps, size)
+        Nothing -> case lookup v symbols of
+          -- static var is stored in data section, not stack
+          Just (_, StaticAttr _ _) -> ((opr, Data v):maps, size)
+          _ -> ((opr, Memory bp size):maps, size - 1)
+    (PseudoMem v _) ->
       case lookup opr maps of
         (Just _) -> (maps, size)
         Nothing -> case lookup v symbols of
@@ -120,3 +128,7 @@ mapOps _ x = x
 tacValToAsm :: TACAST.Val -> Operand
 tacValToAsm (TACAST.Constant n) = Lit $ getConstInt n
 tacValToAsm (TACAST.Var s) = Pseudo s
+
+makePseudoMem :: TACAST.Val -> Int -> Operand
+makePseudoMem (TACAST.Var s) = PseudoMem s
+makePseudoMem _ = error "Compiler Error: attempted to make PseudoMem for non-var"

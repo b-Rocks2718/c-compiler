@@ -10,7 +10,7 @@ import AsmAST (
   sp,
   bp)
 import AsmGen(getSrcs, getDst)
-import TypedAST (StaticInit(getStaticInit))
+import TypedAST (StaticInit(getStaticInit, ZeroInit))
 
 data MachineInstr = Add  Reg Reg Reg
                   | Addc Reg Reg Reg -- add w/ carry
@@ -60,6 +60,7 @@ data MachineInstr = Add  Reg Reg Reg
                   | Sys Exception -- calls the OS
                   | Label String
                   | Fill Int -- inserts data
+                  | Space Int -- inserts 0s
                   | NlComment String
                   | Comment String
                   deriving (Show)
@@ -78,7 +79,7 @@ data Exception = Exit
 -- this function assumes no other registers are used in previous stage
 -- hopefully I can fix this nonsense when I write a register allocator
 toMachineInstr :: String -> AsmAST.Instr -> [MachineInstr]
-toMachineInstr name instr = 
+toMachineInstr name instr =
   case instr of
     -- kind of a hack but it seems to work for now
     AsmAST.Mov (Reg r1) (Reg r2) -> [Mov r1 r2]
@@ -91,6 +92,7 @@ toMachineInstr name instr =
     AsmAST.Mov (Reg r) (Data v) -> [Movi R3 (ImmLabel v), Lw r R3 0]
     AsmAST.Push (Reg r) -> [Push r]
     AsmAST.GetAddress (Memory r n) (Memory r' m) -> [Addi R3 r' m, Sw R3 r n]
+    AsmAST.GetAddress (Memory r n) (Data s) -> [Movi R3 (ImmLabel s), Sw R3 r n]
     _ -> loads ++ operation ++ stores
     where loads = case getSrcs instr of
             [a, b] -> loada ++ loadb
@@ -149,7 +151,7 @@ toMachineInstr name instr =
               else [Movi R3 (ImmLit n), Add sp sp R3]
             AsmAST.Call f -> [Call f]
             AsmAST.Push _ -> [Push R3]
-            AsmAST.Ret -> case name of 
+            AsmAST.Ret -> case name of
               -- function epilogues
                     "main" -> [Comment "Function Epilogue", Sys Exit]
                     _ -> [Comment "Function Epilogue",
@@ -169,25 +171,30 @@ toMachineInstr name instr =
 
 -- global will be ignored until I update the assembler
 topLevelToMachine :: AsmAST.TopLevel -> [MachineInstr]
-topLevelToMachine (AsmAST.Func name _ instrs) = 
+topLevelToMachine (AsmAST.Func name _ instrs) =
   case name of
     -- function prologues
-    "main" -> [Label name, 
+    "main" -> [Label name,
                Addi sp R0 0,
                Addi bp R0 0]
     _ -> [Label name,
-          Comment "Function Prologue", 
-          Sw R7 sp (-1), 
-          Sw bp sp (-2), 
+          Comment "Function Prologue",
+          Sw R7 sp (-1),
+          Sw bp sp (-2),
           Addi sp sp (-2),
           Addi bp sp 0,
-          Comment "Function Body"] 
+          Comment "Function Body"]
   ++ (instrs >>= toMachineInstr name)
-topLevelToMachine (AsmAST.StaticVar name _ n) = [Label name, Fill (getStaticInit n)]
+topLevelToMachine (AsmAST.StaticVar name _ n) =
+  Label name : (makeData <$> n)
 topLevelToMachine (AsmAST.Comment s) = [NlComment s]
 
+makeData :: StaticInit -> MachineInstr
+makeData (ZeroInit n) = Space n
+makeData other = Fill . getStaticInit $ other
+
 progToMachine :: AsmAST.Prog -> [MachineInstr]
-progToMachine (AsmAST.Prog topLevels) = 
+progToMachine (AsmAST.Prog topLevels) =
   [Movi R3 (ImmLabel "main"), Jalr R0 R3] ++ (topLevels >>= topLevelToMachine)
 
 asmToStr :: MachineInstr -> String
@@ -211,6 +218,7 @@ asmToStr (Bae s) = "\tbae " ++ show s
 asmToStr (Bb s) = "\tbb " ++ show s
 asmToStr (Bbe s) = "\tbbe " ++ show s
 asmToStr (Fill s) = "\t.fill " ++ show s
+asmToStr (Space s) = "\t.space " ++ show s
 asmToStr (NlComment s) = "\n# " ++ s
 asmToStr (Comment s) = "\t# " ++ s
 asmToStr (Movi r imm) = "\tmovi " ++ (toLower <$> show r) ++ show imm
