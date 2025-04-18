@@ -257,7 +257,7 @@ instance Show Type_ where
   show (PointerType refType) =
     show refType ++ "*"
   show (ArrayType itemType size) =
-    show itemType ++ "[" ++ show size ++ "]"
+    "Array(" ++ show itemType ++ "," ++ show size ++ ")"
 
 instance Show BlockItem where
   show = showBlockItem 1

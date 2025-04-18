@@ -37,7 +37,7 @@ parseDirectDeclarator = do
   suffix <- parseDeclaratorSuffix
   case suffix of
     Just (Left params) -> return $ FunDec params d
-    Just (Right n) -> return $ makeArrayDec d n
+    Just (Right ns) -> return $ makeArrayDec d (reverse ns)
     Nothing -> return d
 
 makeArrayDec :: Declarator -> [Int] -> Declarator

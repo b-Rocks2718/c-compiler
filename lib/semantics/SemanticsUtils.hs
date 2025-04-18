@@ -1,6 +1,7 @@
 module SemanticsUtils where
 
 import Utils
+import qualified TypedAST
 import TypedAST (StaticInit (..), intStaticInit)
 import AST
 import ParserUtils (typeSize)
@@ -16,8 +17,14 @@ isInitConst :: Type_ -> VarInit -> Maybe [StaticInit]
 isInitConst type_ init_ = case init_ of
   SingleInit expr -> intStaticInit type_ <$> evalConst expr
   CompoundInit inits -> case type_ of
-    ArrayType inner _ -> concatMap (take (typeSize inner) . (++ repeat (IntInit 0))) <$> traverse (isInitConst inner) inits
+    ArrayType inner _ ->
+      take (typeSize type_) . (++ repeat (IntInit 0)) . concatMap (take (typeSize inner) . (++ repeat (IntInit 0))) <$> traverse (isInitConst inner) inits
     _ -> Nothing
+
+zeroInitializer :: Type_ -> TypedAST.VarInit
+zeroInitializer type_@(ArrayType inner size) =
+  TypedAST.CompoundInit (replicate size (zeroInitializer inner)) type_
+zeroInitializer type_ = TypedAST.SingleInit (TypedAST.litExpr 0 type_) type_
 
 -- evaluate const expression, return Nothing for non-const
 evalConst :: Expr -> Maybe Int

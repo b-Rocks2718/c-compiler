@@ -3,7 +3,7 @@ module Typechecking where
 
 import Utils
 import ParserUtils ( isFunc, typeSize, isSigned )
-import SemanticsUtils ( isInitConst )
+import SemanticsUtils ( isInitConst, zeroInitializer )
 import qualified AST
 import AST(BinOp(..), UnaryOp(..))
 import TypedAST
@@ -287,11 +287,6 @@ typecheckInit targetType init_ = case (targetType, init_) of
     let padded = take size (resolved ++ repeat (zeroInitializer inner))
     return (CompoundInit padded targetType)
   _ -> lift (Err "Semantics Error: invalid initializer 2")
-
-zeroInitializer :: Type_ -> VarInit
-zeroInitializer type_@(ArrayType inner size) =
-  CompoundInit (replicate size (zeroInitializer inner)) type_
-zeroInitializer type_ = SingleInit (litExpr 0 type_) type_
 
 typecheckExpr :: AST.Expr -> StateT SymbolTable Result Expr
 typecheckExpr e = case e of
